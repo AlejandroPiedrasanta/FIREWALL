@@ -72,6 +72,25 @@ El gráfico y las conexiones se actualizan en **tiempo real preciso** (la tasa s
 normaliza por el tiempo transcurrido real y las conexiones se refrescan cada
 segundo).
 
+### Modo simple, pop-up de permiso y Adobe
+
+- **Modo simple** (icono ✨ arriba a la derecha, o en Ajustes y la bandeja):
+  interfaz ultra sencilla con **solo Firewall y Amenazas**; oculta todo lo demás.
+  Se puede volver al modo completo cuando quieras.
+- **Pop-up de permiso dentro de la app** (no una notificación de Windows): en
+  modo *Preguntar*, cuando un programa nuevo intenta conectarse, MiniWall trae la
+  ventana al frente y muestra un cuadro **¿Permitir la conexión?** con Permitir /
+  Bloquear, el riesgo del programa y el motivo. La decisión se guarda como regla
+  del Firewall de Windows, así que **se mantiene aunque reinicies**.
+- **Botón "Restaurar (permitir todo)"** en el panel del firewall: quita todos los
+  bloqueos y vuelve a permitir todas las conexiones de una vez.
+- **Detección de Adobe**: MiniWall reconoce los programas de Adobe (Acrobat,
+  Creative Cloud, telemetría, licencias…) cuando se conectan, los marca con una
+  etiqueta **Adobe** y te **avisa**. Puedes desactivar el aviso en Ajustes.
+- Más **privilegios**: además de administrador, MiniWall activa los privilegios
+  del sistema disponibles (depuración, copia, etc.) para tener visibilidad total
+  de los procesos.
+
 **No incluido** (a propósito, para mantenerlo minimalista y sin exponer nada a
 la red): la monitorización remota de servidores y la consola de administración
 multi‑equipo. La interfaz solo escucha en `127.0.0.1` y exige un token aleatorio

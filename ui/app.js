@@ -388,6 +388,9 @@ function onState(s) {
     tb.classList.toggle('hidden', !s.threats);
     tb.classList.toggle('danger-badge', s.danger > 0);
   }
+  document.body.classList.toggle('simple', !!s.simple);
+  if (s.simple && !['firewall', 'amenazas', 'ajustes'].includes(S.tab)) showTab('firewall');
+  renderAskModal(s);
 
   // datos del gráfico en vivo (últimos 5 minutos) y minigráfico
   const live = secs.slice(-300).map(x => ({ t: x[0], a: x[1], b: x[2] }));
@@ -529,10 +532,13 @@ function renderFwHero(s) {
         <div class="muted small">Perfil «${esc(s.profile)}» · administrador · ${s.conns} conexiones activas</div>
         <div class="row wrap" style="margin-top:9px;gap:6px">${chips.join('')}</div>
       </div>
-      <div class="seg hero-seg">
-        <button data-mode="monitor" class="${s.mode === 'monitor' ? 'on' : ''}">Monitorizar</button>
-        <button data-mode="preguntar" class="${s.mode === 'preguntar' ? 'on' : ''}">Preguntar</button>
-        <button data-mode="bloquear" class="${s.mode === 'bloquear' ? 'on block' : 'block'}">Bloquear todo</button>
+      <div class="row" style="flex-direction:column;gap:8px;align-items:stretch">
+        <div class="seg hero-seg">
+          <button data-mode="monitor" class="${s.mode === 'monitor' ? 'on' : ''}">Monitorizar</button>
+          <button data-mode="preguntar" class="${s.mode === 'preguntar' ? 'on' : ''}">Preguntar</button>
+          <button data-mode="bloquear" class="${s.mode === 'bloquear' ? 'on block' : 'block'}">Bloquear todo</button>
+        </div>
+        <button class="btn sm" data-act="restore" title="Quita todos los bloqueos y permite todas las conexiones"><svg width="14" height="14"><use href="#i-restore"/></svg> Restaurar (permitir todo)</button>
       </div>
     </div>`;
   if (el._h !== h) { el.innerHTML = h; el._h = h; }
@@ -583,6 +589,38 @@ $('#fwSearch').addEventListener('input', e => { S.fwSearch = e.target.value; ren
 $('#profileSel').addEventListener('change', e => act({ act: 'profile-switch', name: e.target.value }));
 
 /* ======================================================================
+   Pop-up de permiso (dentro de la app, no notificación de Windows)
+   ====================================================================== */
+let askShownKey = null;
+function renderAskModal(s) {
+  const bg = $('#askModal');
+  const pend = (s.apps || []).filter(a => a.pending);
+  if (!pend.length) { bg.classList.add('hidden'); askShownKey = null; return; }
+  const a = pend[0];
+  if (askShownKey === a.key && !bg.classList.contains('hidden')) return;
+  askShownKey = a.key;
+  const risky = a.risk >= 1 || a.exposed || a.tor || a.adobe;
+  $('#askCard').innerHTML = `
+    <div class="ask-head ${a.risk >= 2 ? 'danger' : risky ? 'warn' : ''}">
+      <svg><use href="#${a.risk >= 2 ? 'i-skull' : 'i-shield'}"/></svg>
+      <div><div class="small" style="opacity:.8">Un programa quiere conectarse a Internet</div><div class="ask-title">¿Permitir la conexión?</div></div>
+    </div>
+    <div class="ask-body">
+      <div class="row" style="gap:12px">${appIcon(a.path, a.name)}<div style="min-width:0"><div style="font-size:16px;font-weight:650" class="ellipsis">${esc(a.name)}</div><div class="small faint ellipsis" title="${esc(a.path)}">${esc(a.path || '')}</div></div></div>
+      ${a.adobe ? '<div class="ask-flag warn">Pertenece a Adobe (telemetría / licencias).</div>' : ''}
+      ${a.risk >= 2 ? '<div class="ask-flag danger">⚠ Clasificado como PELIGROSO. Se recomienda bloquear.</div>' : a.risk === 1 ? '<div class="ask-flag warn">Clasificado como sospechoso.</div>' : ''}
+      ${(a.reasons && a.reasons.length) ? `<ul class="reasons">${a.reasons.map(x => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}
+      ${pend.length > 1 ? `<div class="small muted" style="margin-top:8px">y ${pend.length - 1} programa(s) más esperando</div>` : ''}
+    </div>
+    <div class="ask-actions">
+      <button class="btn danger grow" data-act="ask-block" data-key="${esc(a.key)}">🚫 Bloquear</button>
+      <button class="btn ${a.risk >= 2 ? '' : 'primary'} grow" data-act="ask-allow" data-key="${esc(a.key)}">✓ Permitir</button>
+    </div>`;
+  bg.classList.remove('hidden');
+}
+function closeAsk() { $('#askModal').classList.add('hidden'); askShownKey = null; }
+
+/* ======================================================================
    Amenazas / control maestro
    ====================================================================== */
 const RISK = { 0: ['ok', 'Seguro'], 1: ['warn', 'Sospechoso'], 2: ['danger', 'Peligroso'] };
@@ -591,6 +629,7 @@ function riskBadge(a) {
   if (a.risk >= 1) s += `<span class="tag ${RISK[a.risk][0] === 'danger' ? 'danger' : 'warn'}">${a.risk >= 2 ? '⚠ Peligroso' : 'Sospechoso'}</span>`;
   if (a.exposed) s += `<span class="tag warn" title="Acepta conexiones entrantes de la red">servicio</span>`;
   if (a.tor) s += `<span class="tag danger" title="Indicios de Tor / servicio oculto">Tor</span>`;
+  if (a.adobe) s += `<span class="tag" style="color:#ff5a5a;border-color:#ff5a5a66" title="Programa de Adobe">Adobe</span>`;
   if (a.signed === 0 && !a.system) s += `<span class="tag" title="Sin firma digital válida">sin firma</span>`;
   return s;
 }
@@ -621,7 +660,7 @@ async function loadThreats() {
       <div class="stat">
         <div class="ic ${rc[0]}"><svg><use href="#${i.risk >= 2 ? 'i-skull' : i.risk === 1 ? 'i-eye' : 'i-shield'}"/></svg></div>
         <div class="grow" style="min-width:0">
-          <div class="row" style="gap:8px">${appIcon(i.path, i.name)}<b class="ellipsis">${esc(i.name)}</b><span class="tag ${rc[0] === 'danger' ? 'danger' : rc[0] === 'warn' ? 'warn' : ''}">${rc[1]}</span>${i.blocked ? '<span class="tag danger">BLOQUEADO</span>' : ''}</div>
+          <div class="row" style="gap:8px">${appIcon(i.path, i.name)}<b class="ellipsis">${esc(i.name)}</b><span class="tag ${rc[0] === 'danger' ? 'danger' : rc[0] === 'warn' ? 'warn' : ''}">${rc[1]}</span>${i.adobe ? '<span class="tag" style="color:#ff5a5a;border-color:#ff5a5a66">Adobe</span>' : ''}${i.exposed ? '<span class="tag warn">servicio oculto</span>' : ''}${i.blocked ? '<span class="tag danger">BLOQUEADO</span>' : ''}</div>
           <div class="small faint ellipsis" title="${esc(i.path)}">${esc(i.path || 'Sin ejecutable')}</div>
           <div class="small" style="margin-top:6px">${signLabel(i.signed)} · ${i.conns} conexiones${i.listen ? ' · ' + i.listen + ' a la escucha' : ''}</div>
           <ul class="reasons">${(i.reasons || []).map(x => `<li>${esc(x)}</li>`).join('') || '<li class="faint">Vigilado por abrir servicios o conectarse a muchos destinos.</li>'}</ul>
@@ -912,6 +951,8 @@ async function loadConfig() {
     settingRow('Escritorio remoto (RDP)', '', sw('notify.rdp', n.rdp)) +
     settingRow('Cámara y micrófono', '', sw('notify.privacy', n.privacy)) +
     settingRow('Gemelo malvado Wi‑Fi', '', sw('notify.evilTwin', n.evilTwin)) +
+    settingRow('Programas peligrosos / sospechosos', '', sw('notify.threat', n.threat)) +
+    settingRow('Conexiones de Adobe', 'Avisa cuando un programa de Adobe se conecta a Internet.', sw('notify.adobe', n.adobe)) +
     settingRow('Límite de datos', '', sw('notify.limit', n.limit));
   $('#generalSettings').innerHTML =
     settingRow('Límite de datos mensual', 'Avisa al llegar al 80 % y al 100 %. 0 = sin límite.', `<span class="row" style="gap:6px"><input type="number" min="0" step="1" value="${c.limitGB}" data-cfg="limitGB" style="width:90px"> GB</span>`) +
@@ -920,6 +961,7 @@ async function loadConfig() {
     settingRow('Cerrar a la bandeja', 'Al cerrar la ventana, MiniWall sigue protegiendo desde la bandeja del sistema.', sw('closeToTray', c.closeToTray));
 
   $('#firewallSettings').innerHTML =
+    settingRow('✨ Modo simple', 'Interfaz ultra sencilla: solo Firewall y Amenazas. Oculta todo lo demás (puedes volver cuando quieras).', sw('simple', c.simple)) +
     settingRow('🔒 Bloqueo estricto <span class="tag accent">máximo control</span>', 'Bloquea por defecto TODA conexión de salida en el Firewall de Windows. Cualquier programa nuevo queda bloqueado y te pide permiso antes de dejarlo conectar. <b>Esto sigue activo aunque reinicies o cierres MiniWall.</b>', sw('strictBlock', c.strictBlock)) +
     settingRow('🛡️ Protección reforzada (guardián)', 'Reactiva el Firewall de Windows si algo lo apaga y vuelve a aplicar tus reglas cada pocos segundos, para que nadie pueda saltárselas.', sw('guard', c.guard)) +
     settingRow('Iniciar con Windows', 'Arranca en segundo plano al iniciar sesión, para seguir vigilando y preguntando por programas nuevos.', sw('autostart', c.autostart)) +
@@ -979,8 +1021,8 @@ async function act(d) {
         if (r !== 'ok') toast('No se pudo cambiar', r, 'warn');
         break;
       }
-      case 'ask-allow': await api('ask', { key: d.key, allow: true }); toast('App permitida', 'Se ha eliminado el bloqueo.', 'info', '', 2500); break;
-      case 'ask-block': await api('ask', { key: d.key, allow: false }); toast('App bloqueada', 'Seguirá bloqueada en este perfil.', 'warn', '', 2500); break;
+      case 'ask-allow': closeAsk(); await api('ask', { key: d.key, allow: true }); toast('App permitida', 'Se ha permitido la conexión.', 'info', '', 2500); break;
+      case 'ask-block': closeAsk(); await api('ask', { key: d.key, allow: false }); toast('App bloqueada', 'Seguirá bloqueada.', 'warn', '', 2500); break;
       case 'profile-switch': await api('profile', { action: 'switch', name: d.name }); break;
       case 'profile-new': {
         const n = prompt('Nombre del nuevo perfil (copia las reglas del perfil actual):');
@@ -1042,6 +1084,14 @@ async function act(d) {
         break;
       }
       case 'reveal': if (d.path) await api('reveal', { name: d.path }); break;
+      case 'restore':
+        if (confirm('RESTAURAR\n\nSe quitarán TODOS los bloqueos y se permitirán todas las conexiones (se desactiva el bloqueo estricto y se vuelve al modo Monitorizar). ¿Continuar?')) {
+          await api('rules/clear', {});
+          toast('Conexiones restauradas', 'Todas las apps vuelven a tener acceso a la red.', 'info', '', 4000);
+        }
+        break;
+      case 'simple-on': await api('config', { config: { simple: true } }); showTab('firewall'); break;
+      case 'simple-off': await api('config', { config: { simple: false } }); break;
       case 'alerts-read': await api('alerts/read', {}); loadAlerts(); break;
       case 'alerts-clear': if (confirm('¿Borrar todas las alertas?')) { await api('alerts/clear', {}); loadAlerts(); } break;
     }
@@ -1082,6 +1132,12 @@ function checkMini() {
   }
 }
 addEventListener('resize', checkMini);
+$('#simpleBtn').addEventListener('click', async () => {
+  const on = !(S.last && S.last.simple);
+  await api('config', { config: { simple: on } });
+  if (on) showTab('firewall');
+  toast(on ? 'Modo simple activado' : 'Modo completo', on ? 'Solo Firewall y Amenazas.' : 'Todas las secciones visibles.', 'info', '', 2500);
+});
 $('#miniBtn').addEventListener('click', () => api('window', { action: 'mini' }));
 $('#mini').addEventListener('dblclick', () => api('window', { action: 'normal' }));
 

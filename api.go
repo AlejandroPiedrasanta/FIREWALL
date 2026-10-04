@@ -302,6 +302,7 @@ type appView struct {
 	Exposed bool     `json:"exposed"`
 	Tor     bool     `json:"tor"`
 	Listen  int      `json:"listen"`
+	Adobe   bool     `json:"adobe"`
 }
 
 type stateView struct {
@@ -331,6 +332,8 @@ type stateView struct {
 	Blocked   int        `json:"blocked"`
 	Threats   int        `json:"threats"`
 	Danger    int        `json:"danger"`
+	Simple    bool       `json:"simple"`
+	AdobeN    int        `json:"adobe"`
 }
 
 func (a *App) appViews(today map[string]u2) []appView {
@@ -357,7 +360,7 @@ func (a *App) appViews(today map[string]u2) []appView {
 			v.Name, v.Path, v.RxRate, v.TxRate, v.Conns = la.Name, la.Path, la.RxRate, la.TxRate, la.Conns
 			v.Active = la.Conns > 0 || la.RxRate+la.TxRate > 0
 			v.Risk, v.Reasons, v.Signed = la.Risk, la.Reasons, la.Signed
-			v.Exposed, v.Tor, v.Listen = la.Exposed, la.Tor, la.Listen
+			v.Exposed, v.Tor, v.Listen, v.Adobe = la.Exposed, la.Tor, la.Listen, la.Adobe
 		}
 		if r := a.cfg.Apps[k]; r != nil {
 			if v.Path == "" {
@@ -456,7 +459,11 @@ func (a *App) State() stateView {
 		if la.Risk >= riskDanger {
 			v.Danger++
 		}
+		if la.Adobe && la.Conns > 0 {
+			v.AdobeN++
+		}
 	}
+	v.Simple = a.cfg.Simple
 	return v
 }
 
@@ -473,6 +480,7 @@ type threatItem struct {
 	Conns   int      `json:"conns"`
 	Blocked bool     `json:"blocked"`
 	System  bool     `json:"system"`
+	Adobe   bool     `json:"adobe"`
 }
 
 type threatsResp struct {
@@ -487,13 +495,13 @@ func (a *App) ThreatsView() threatsResp {
 	defer a.mu.Unlock()
 	var items []threatItem
 	for k, la := range a.apps {
-		if la.Risk < riskWarn && !la.Exposed && !la.Tor {
+		if la.Risk < riskWarn && !la.Exposed && !la.Tor && !la.Adobe {
 			continue
 		}
 		items = append(items, threatItem{
 			Key: k, Name: la.Name, Path: la.Path, Risk: la.Risk, Reasons: la.Reasons,
 			Signed: la.Signed, Exposed: la.Exposed, Tor: la.Tor, Listen: la.Listen, Conns: la.Conns,
-			Blocked: a.cfg.isBlocked(k), System: la.Path == "" || isSystemPath(la.Path),
+			Blocked: a.cfg.isBlocked(k), System: la.Path == "" || isSystemPath(la.Path), Adobe: la.Adobe,
 		})
 	}
 	sort.Slice(items, func(i, j int) bool {
@@ -952,6 +960,7 @@ func (a *App) UpdateConfig(raw json.RawMessage) error {
 		Autostart   *bool      `json:"autostart"`
 		StrictBlock *bool      `json:"strictBlock"`
 		Guard       *bool      `json:"guard"`
+		Simple      *bool      `json:"simple"`
 	}
 	if err := json.Unmarshal(raw, &in); err != nil {
 		return err
@@ -999,6 +1008,9 @@ func (a *App) UpdateConfig(raw json.RawMessage) error {
 	}
 	if in.Guard != nil {
 		c.Guard = *in.Guard
+	}
+	if in.Simple != nil {
+		c.Simple = *in.Simple
 	}
 	if in.StrictBlock != nil && *in.StrictBlock != c.StrictBlock {
 		c.StrictBlock = *in.StrictBlock

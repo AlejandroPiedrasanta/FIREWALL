@@ -29,6 +29,8 @@
     <symbol id="i-skull" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M12 2a9 9 0 0 0-5 16.5V21a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1v-2.5A9 9 0 0 0 12 2z"/><circle cx="9" cy="12" r="1.5" fill="currentColor" stroke="none"/><circle cx="15" cy="12" r="1.5" fill="currentColor" stroke="none"/><path d="M10 22v-2M14 22v-2" stroke-linecap="round"/></symbol>
     <symbol id="i-eye" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/></symbol>
     <symbol id="i-key" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="7.5" cy="15.5" r="4.5"/><path d="m10.5 12.5 8-8M16 7l3 3M14 9l3 3"/></symbol>
+    <symbol id="i-spark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v4M12 17v4M3 12h4M17 12h4M6 6l2.5 2.5M15.5 15.5 18 18M18 6l-2.5 2.5M8.5 15.5 6 18"/></symbol>
+    <symbol id="i-restore" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></symbol>
     <symbol id="i-left" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m15 18-6-6 6-6"/></symbol>
     <symbol id="i-right" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m9 18 6-6-6-6"/></symbol>
   </defs>
@@ -51,6 +53,7 @@
     <button class="tab" data-tab="alertas"><svg><use href="#i-bell"/></svg><span class="lbl">Alertas</span> <span class="badge hidden" id="badge">0</span></button>
   </nav>
   <div class="top-actions">
+    <button class="icon-btn" id="simpleBtn" title="Modo simple / completo"><svg><use href="#i-spark"/></svg></button>
     <button class="icon-btn" id="miniBtn" title="Minigráfico (siempre visible)"><svg><use href="#i-mini"/></svg></button>
     <button class="icon-btn" data-tab="ajustes" title="Ajustes"><svg><use href="#i-gear"/></svg></button>
   </div>
@@ -307,6 +310,10 @@
 </div>
 
 <div class="toast-area" id="toasts"></div>
+
+<div id="askModal" class="modal-bg hidden">
+  <div class="modal" id="askCard"></div>
+</div>
 
 <script src="worldmap.js"></script>
 <script src="app.js"></script>

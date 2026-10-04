@@ -236,22 +236,31 @@ func windowDPI(hwnd uintptr) int {
 	return systemDPI()
 }
 
-// enableDebugPrivilege activa SeDebugPrivilege para que MiniWall pueda leer la
-// ruta e información de cualquier proceso (incluidos los de otros usuarios y del
-// sistema), dándole visibilidad total de lo que usa la red.
+// enableDebugPrivilege activa el máximo de privilegios disponibles para que
+// MiniWall tenga pleno control: leer la ruta e información de CUALQUIER proceso
+// (incluidos los de otros usuarios y del sistema), realizar copias/restauración
+// y tomar posesión si hiciera falta. Activar un privilegio que el token no posee
+// simplemente no tiene efecto, por lo que es seguro intentarlos todos.
 func enableDebugPrivilege() {
 	var tok windows.Token
 	if err := windows.OpenProcessToken(windows.CurrentProcess(), windows.TOKEN_ADJUST_PRIVILEGES|windows.TOKEN_QUERY, &tok); err != nil {
 		return
 	}
 	defer tok.Close()
-	var luid windows.LUID
-	if windows.LookupPrivilegeValue(nil, utf16("SeDebugPrivilege"), &luid) != nil {
-		return
+	privs := []string{
+		"SeDebugPrivilege", "SeBackupPrivilege", "SeRestorePrivilege",
+		"SeSecurityPrivilege", "SeTakeOwnershipPrivilege", "SeLoadDriverPrivilege",
+		"SeSystemEnvironmentPrivilege", "SeIncreaseQuotaPrivilege",
 	}
-	tp := windows.Tokenprivileges{PrivilegeCount: 1}
-	tp.Privileges[0] = windows.LUIDAndAttributes{Luid: luid, Attributes: windows.SE_PRIVILEGE_ENABLED}
-	windows.AdjustTokenPrivileges(tok, false, &tp, 0, nil, nil)
+	for _, name := range privs {
+		var luid windows.LUID
+		if windows.LookupPrivilegeValue(nil, utf16(name), &luid) != nil {
+			continue
+		}
+		tp := windows.Tokenprivileges{PrivilegeCount: 1}
+		tp.Privileges[0] = windows.LUIDAndAttributes{Luid: luid, Attributes: windows.SE_PRIVILEGE_ENABLED}
+		windows.AdjustTokenPrivileges(tok, false, &tp, 0, nil, nil)
+	}
 }
 
 func newCallback(fn any) uintptr { return syscall.NewCallback(fn) }

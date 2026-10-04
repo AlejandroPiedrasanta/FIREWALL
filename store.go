@@ -52,6 +52,8 @@ type NotifyCfg struct {
 	Privacy     bool  `json:"privacy"`
 	EvilTwin    bool  `json:"evilTwin"`
 	Limit       bool  `json:"limit"`
+	Adobe       bool  `json:"adobe"`
+	Threat      bool  `json:"threat"`
 }
 
 type Config struct {
@@ -73,6 +75,7 @@ type Config struct {
 	Autostart    bool                   `json:"autostart"`
 	StrictBlock  bool                   `json:"strictBlock"` // bloqueo por defecto de salida en modo preguntar
 	Guard        bool                   `json:"guard"`       // reaplica reglas y reactiva el firewall periódicamente
+	Simple       bool                   `json:"simple"`      // modo ultra simple (solo Firewall y Amenazas)
 	Installed    bool                   `json:"installed"`   // instalado en el equipo
 	Allowed      map[string]string      `json:"allowed"`     // reglas de permiso creadas (modo estricto): clave → ruta
 	Devices      map[string]*Device     `json:"devices"`
@@ -85,7 +88,7 @@ func defaultConfig() *Config {
 		Mode:        "monitor",
 		Profile:     "Normal",
 		Profiles:    []*Profile{{Name: "Normal"}, {Name: "Wi-Fi pública"}, {Name: "Juegos"}},
-		Notify:      NotifyCfg{Balloons: true, NewApp: true, AppChanged: true, Devices: true, RDP: true, Privacy: true, EvilTwin: true, Limit: true},
+		Notify:      NotifyCfg{Balloons: true, NewApp: true, AppChanged: true, Devices: true, RDP: true, Privacy: true, EvilTwin: true, Limit: true, Adobe: true, Threat: true},
 		BillingDay:  1,
 		Retention:   30,
 		CloseToTray: true,

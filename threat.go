@@ -47,6 +47,31 @@ var badRemotePorts = map[uint16]string{
 
 func lowerBase(path string) string { return strings.ToLower(filepath.Base(path)) }
 
+// adobeNames: ejecutables de Adobe que suelen conectarse (telemetría, licencias,
+// Creative Cloud) aunque no estén instalados bajo una carpeta "Adobe".
+var adobeNames = []string{
+	"acrobat", "acrord32", "acrocef", "armsvc", "photoshop", "illustrator",
+	"premiere", "aftereffects", "lightroom", "indesign", "ccxprocess",
+	"creative cloud", "adobedesktopservice", "adobeipcbroker", "adobecollabsync",
+	"adobenotificationclient", "adobe genuine", "agmservice", "agsservice", "coresync",
+}
+
+// isAdobe indica si el programa pertenece a Adobe.
+func isAdobe(path, name string) bool {
+	p := strings.ToLower(path)
+	if strings.Contains(p, `\adobe\`) || strings.Contains(p, "adobe") {
+		return true
+	}
+	n := strings.ToLower(name)
+	base := lowerBase(path)
+	for _, a := range adobeNames {
+		if strings.Contains(base, a) || strings.Contains(n, a) {
+			return true
+		}
+	}
+	return false
+}
+
 // suspiciousLocation indica si el ejecutable está en una ubicación poco habitual
 // para software legítimo instalado.
 func suspiciousLocation(path string) (bool, string) {

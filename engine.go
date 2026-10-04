@@ -33,6 +33,7 @@ type liveApp struct {
 	Exposed   bool     // escucha en todas las interfaces (servicio accesible desde la red)
 	Listen    int      // nº de puertos a la escucha
 	Tor       bool     // posible red Tor / servicio oculto
+	Adobe     bool     // pertenece a Adobe
 	countries map[string]bool
 }
 
@@ -133,8 +134,10 @@ type App struct {
 	allowOn    map[string]string // reglas de permiso aplicadas (modo estricto, en memoria)
 	sigQueue   chan string       // rutas pendientes de comprobar firma
 	sigPending map[string]bool
-	threatSeen map[string]int // clave → nivel ya avisado
+	threatSeen map[string]int  // clave → nivel ya avisado
+	adobeSeen  map[string]bool // apps Adobe ya avisadas
 	notify     func(title, text, level string)
+	onAsk      func() // traer la ventana al frente cuando un programa pide permiso
 	stopOnce   sync.Once
 }
 
@@ -157,7 +160,9 @@ func NewApp(dir string) *App {
 		sigQueue:   make(chan string, 256),
 		sigPending: map[string]bool{},
 		threatSeen: map[string]int{},
+		adobeSeen:  map[string]bool{},
 		notify:     func(string, string, string) {},
+		onAsk:      func() {},
 	}
 	a.cfg = defaultConfig()
 	if err := readJSON(filepath.Join(dir, "config.json"), a.cfg); err != nil {
@@ -428,6 +433,7 @@ func (a *App) step(now time.Time) {
 
 	if socks != nil {
 		a.processSockets(socks, sockProcs, now)
+		a.checkAdobe(now)
 	}
 	if tick%2 == 0 {
 		a.checkPrivacy(now)
@@ -466,7 +472,7 @@ func pushF(s []float64, v float64, max int) []float64 {
 func (a *App) liveApp(pi *procInfo, now time.Time) *liveApp {
 	la := a.apps[pi.Key]
 	if la == nil {
-		la = &liveApp{Key: pi.Key, Path: pi.Path, Name: pi.Name}
+		la = &liveApp{Key: pi.Key, Path: pi.Path, Name: pi.Name, Adobe: isAdobe(pi.Path, pi.Name)}
 		a.apps[pi.Key] = la
 	}
 	la.LastSeen = now.Unix()
@@ -474,6 +480,18 @@ func (a *App) liveApp(pi *procInfo, now time.Time) *liveApp {
 		la.Path = pi.Path
 	}
 	return la
+}
+
+// checkAdobe avisa (una vez por app) cuando un programa de Adobe se conecta.
+func (a *App) checkAdobe(now time.Time) {
+	for k, la := range a.apps {
+		if !la.Adobe || la.Conns == 0 || a.adobeSeen[k] || a.firstRun {
+			continue
+		}
+		a.adobeSeen[k] = true
+		a.alert("adobe", "info", "Adobe se está conectando",
+			la.Name+" (Adobe) ha abierto una conexión a Internet.\n"+la.Path, k)
+	}
 }
 
 func (a *App) host(ip netip.Addr, now time.Time) *hostLive {
@@ -664,6 +682,7 @@ func (a *App) seeApp(pi *procInfo, now time.Time) {
 				a.queueFW(func() { a.fwResult(fwBlockApp(key, path)); a.markApplied(key, path, true) })
 				a.alert("ask", "warn", "¿Permitir conexión?", pi.Name+" quiere conectarse a Internet. Se ha bloqueado hasta que decidas.", key)
 			}
+			go a.onAsk() // trae la ventana al frente para mostrar el pop-up
 			return
 		}
 		a.alert("newapp", "info", "Nueva app con acceso a la red", pi.Name+" se ha conectado por primera vez.\n"+pi.Path, key)
@@ -825,8 +844,10 @@ func (a *App) alert(kind, level, title, text, key string) {
 	}
 	n := a.cfg.Notify
 	enabled := map[string]bool{
-		"newapp": n.NewApp, "ask": true, "appchanged": n.AppChanged, "device": n.Devices,
-		"rdp": n.RDP, "privacy": n.Privacy, "eviltwin": n.EvilTwin, "limit": n.Limit, "system": true,
+		// "ask" NO usa notificación de Windows: se muestra como pop-up dentro de la app.
+		"newapp": n.NewApp, "ask": false, "appchanged": n.AppChanged, "device": n.Devices,
+		"rdp": n.RDP, "privacy": n.Privacy, "eviltwin": n.EvilTwin, "limit": n.Limit,
+		"system": true, "threat": true, "adobe": n.Adobe,
 	}[kind]
 	if n.Balloons && enabled && time.Now().Unix() >= n.SnoozeUntil {
 		notify := a.notify

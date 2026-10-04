@@ -135,6 +135,9 @@ func main() {
 	}
 	win.quitFn = quit
 	mw.onEndSession = func() { app.Stop() }
+	// Cuando un programa pide permiso, trae la ventana al frente para mostrar el
+	// pop-up de permitir/bloquear (en lugar de una notificación de Windows).
+	app.onAsk = func() { mw.Show() }
 	setupTrayMenu(t, app, mw, quit)
 	go trayTipLoop(app, t)
 
@@ -180,6 +183,7 @@ const (
 	cmdAsk
 	cmdBlockAll
 	cmdStrict
+	cmdSimple
 	cmdInstall
 	cmdSnooze
 	cmdQuit
@@ -199,6 +203,7 @@ func setupTrayMenu(t *tray, app *App, mw *mainWindow, quit func()) {
 		snoozed := app.cfg.Notify.SnoozeUntil > time.Now().Unix()
 		cur := app.cfg.Profile
 		strict := app.cfg.StrictBlock
+		simple := app.cfg.Simple
 		installed := app.cfg.Installed
 		var profiles []string
 		for _, p := range app.cfg.Profiles {
@@ -213,6 +218,7 @@ func setupTrayMenu(t *tray, app *App, mw *mainWindow, quit func()) {
 			{ID: cmdAsk, Label: "Modo: Preguntar antes de conectar", Checked: mode == "preguntar"},
 			{ID: cmdBlockAll, Label: "Modo: Bloquear todo", Checked: mode == "bloquear"},
 			{ID: cmdStrict, Label: "Bloqueo estricto (pide permiso siempre)", Checked: strict},
+			{ID: cmdSimple, Label: "Modo simple (solo Firewall y Amenazas)", Checked: simple},
 			{Sep: true},
 		}
 		for i, p := range profiles {
@@ -250,6 +256,13 @@ func setupTrayMenu(t *tray, app *App, mw *mainWindow, quit func()) {
 			if ns {
 				t.Notify("Bloqueo estricto activado", "Los programas nuevos quedan bloqueados hasta que los autorices, incluso tras reiniciar.", "info")
 			}
+		case id == cmdSimple:
+			app.mu.Lock()
+			ns := !app.cfg.Simple
+			app.mu.Unlock()
+			b, _ := json.Marshal(map[string]any{"simple": ns})
+			app.UpdateConfig(b)
+			t.onOpen()
 		case id == cmdInstall:
 			if err := installApp(app); err != nil {
 				t.Notify("No se pudo instalar", err.Error(), "danger")
