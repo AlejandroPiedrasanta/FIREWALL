@@ -842,11 +842,6 @@ func (a *App) SetMode(mode string) string {
 	a.mu.Lock()
 	prev := a.cfg.Mode
 	a.cfg.Mode = mode
-	if mode == "preguntar" && a.cfg.StrictBlock {
-		// Al entrar en modo estricto, las apps ya conocidas y no bloqueadas se
-		// permiten automáticamente; así solo se pregunta por programas nuevos.
-		a.autoAllowKnownLocked()
-	}
 	a.cfgDirty = true
 	a.mu.Unlock()
 	if prev == mode {
@@ -870,19 +865,19 @@ func (a *App) autoAllowKnownLocked() {
 }
 
 // applyPosture ajusta la directiva global del Firewall de Windows según el modo
-// y el bloqueo estricto, y reaplica todas las reglas.
+// y reaplica todas las reglas. "Preguntar" deniega la salida por defecto.
 func (a *App) applyPosture() {
 	a.mu.Lock()
-	mode, strict := a.cfg.Mode, a.cfg.StrictBlock
+	mode := a.cfg.Mode
 	a.mu.Unlock()
 	a.queueFW(func() {
-		switch {
-		case mode == "bloquear":
+		switch mode {
+		case "bloquear":
 			fwBaseline(false)
 			a.fwResult(fwBlockAll(true))
-		case mode == "preguntar" && strict:
+		case "preguntar":
 			a.fwResult(fwStrictOutbound(true))
-		default:
+		default: // monitor
 			a.fwResult(fwStrictOutbound(false)) // restaura la salida permitida por defecto
 		}
 		a.syncRulesForce(true)
@@ -997,8 +992,9 @@ func (a *App) UpdateConfig(raw json.RawMessage) error {
 	if in.CloseToTray != nil {
 		c.CloseToTray = *in.CloseToTray
 	}
-	if in.AskSystem != nil {
+	if in.AskSystem != nil && *in.AskSystem != c.AskSystem {
 		c.AskSystem = *in.AskSystem
+		posture = true // cambia qué apps del sistema se permiten solas
 	}
 	if in.Autostart != nil && *in.Autostart != c.Autostart {
 		on := *in.Autostart
@@ -1012,12 +1008,8 @@ func (a *App) UpdateConfig(raw json.RawMessage) error {
 	if in.Simple != nil {
 		c.Simple = *in.Simple
 	}
-	if in.StrictBlock != nil && *in.StrictBlock != c.StrictBlock {
-		c.StrictBlock = *in.StrictBlock
-		if c.StrictBlock && c.Mode == "preguntar" {
-			a.autoAllowKnownLocked()
-		}
-		posture = true // reajusta la directiva del firewall al salir
+	if in.StrictBlock != nil {
+		c.StrictBlock = *in.StrictBlock // compatibilidad; "Preguntar" ya deniega por defecto
 	}
 	c.normalize()
 	a.hist.retention = c.Retention

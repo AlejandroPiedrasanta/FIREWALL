@@ -206,12 +206,13 @@ func (a *App) Start() {
 	// Sincroniza las reglas del perfil activo y el modo con el firewall.
 	a.queueFW(func() {
 		a.mu.Lock()
-		mode, rdpBlocked, strict := a.cfg.Mode, a.cfg.RDPBlocked, a.cfg.StrictBlock
+		mode, rdpBlocked := a.cfg.Mode, a.cfg.RDPBlocked
 		port := readRDP().Port
 		a.mu.Unlock()
-		// El bloqueo de salida por defecto (modo estricto) se reaplica en cada
-		// arranque: así sigue protegiendo tras reiniciar aunque alguien lo quitara.
-		if mode == "preguntar" && strict {
+		// En modo "Preguntar" se deniega la salida por defecto: nada se conecta
+		// salvo lo permitido. Se reaplica en cada arranque para que siga
+		// protegiendo tras reiniciar aunque alguien lo quitara.
+		if mode == "preguntar" {
 			a.fwResult(fwStrictOutbound(true))
 		}
 		a.syncRulesForce(true) // reaplica reglas por si se borraron a mano
@@ -230,9 +231,9 @@ func (a *App) Start() {
 // lo apaga y reaplica las reglas de MiniWall periódicamente, de modo que los
 // bloqueos no puedan desaparecer sin que vuelvan a ponerse.
 func (a *App) guardLoop() {
-	for range time.Tick(45 * time.Second) {
+	for range time.Tick(20 * time.Second) {
 		a.mu.Lock()
-		guard, mode, strict := a.cfg.Guard, a.cfg.Mode, a.cfg.StrictBlock
+		guard, mode := a.cfg.Guard, a.cfg.Mode
 		a.mu.Unlock()
 		if !guard {
 			continue
@@ -242,7 +243,7 @@ func (a *App) guardLoop() {
 				a.fwResult(fwEnable())
 				a.alert("system", "warn", "Firewall reactivado", "El Firewall de Windows se había desactivado y MiniWall lo ha vuelto a encender.", "")
 			}
-			if mode == "preguntar" && strict {
+			if mode == "preguntar" {
 				fwStrictOutbound(true)
 			} else if mode == "bloquear" {
 				fwBlockAll(true)
@@ -256,12 +257,18 @@ func (a *App) Stop() {
 	a.stopOnce.Do(func() {
 		a.etw.Stop()
 		a.mu.Lock()
-		blockAll := a.cfg.Mode == "bloquear"
+		mode := a.cfg.Mode
+		persist := a.cfg.Installed && a.cfg.Autostart // volverá a arrancar solo
 		a.mu.Unlock()
-		if blockAll {
-			// La directiva global se restaura al salir para no dejar el equipo sin
-			// conexión si MiniWall se cierra o se desinstala. Se reaplica al iniciar.
+		if mode == "bloquear" {
+			// "Bloquear todo" siempre se restaura al salir para no dejar el equipo
+			// sin conexión. Se reaplica al iniciar.
 			fwBlockAll(false)
+		} else if mode == "preguntar" && !persist {
+			// Si no está instalado para arrancar solo, se restaura la salida al salir
+			// para no dejar el equipo bloqueado sin forma de gestionarlo. Si SÍ está
+			// instalado, el bloqueo por defecto persiste (MiniWall volverá al reiniciar).
+			fwStrictOutbound(false)
 		}
 		a.save(true)
 	})
@@ -279,7 +286,8 @@ func (a *App) ClearAll() {
 		allowApplied[k] = v
 	}
 	prevMode := a.cfg.Mode
-	prevStrict := a.cfg.StrictBlock
+	// "Preguntar" implica denegar la salida por defecto: hay que restaurarla.
+	prevStrict := a.cfg.StrictBlock || prevMode == "preguntar"
 	port := a.rdp.Port
 	a.cfg.Pending = map[string]int64{}
 	a.cfg.Allowed = map[string]string{}
@@ -581,7 +589,10 @@ func (a *App) processSockets(socks []sockRow, procs map[uint32]*procInfo, now ti
 			Local: s.Local.String(), Remote: s.Remote.String(), IP: ra.String(), Port: s.Remote.Port(),
 			Host: h.Name, CC: h.CC, State: tcpStates[s.State],
 		})
-		if s.State == tcpEstablished && pi.Path != "" && pi.Key != selfPath {
+		// Se procesa tanto la conexión establecida como el INTENTO de conexión
+		// (SYN_SENT): así, si una app está bloqueada por defecto, se detecta su
+		// intento y se pregunta igualmente.
+		if (s.State == tcpEstablished || s.State == tcpSynSent) && pi.Path != "" && pi.Key != selfPath {
 			a.seeApp(pi, now)
 		}
 		// Escritorio remoto entrante: conexión establecida en el puerto local RDP.
@@ -659,37 +670,56 @@ func selfExe() string {
 	return selfPathCache
 }
 
-// seeApp registra una app con actividad de red: alerta si es nueva o si su
-// ejecutable cambió, y en modo "preguntar" la bloquea hasta que decidas.
+// seeApp procesa una app con actividad de red. En modo "Preguntar" (que deniega
+// la salida por defecto) decide por cada programa: las apps del sistema se
+// permiten solas para no romper Windows, las apps de usuario sin decisión se
+// bloquean y se pregunta con un pop-up. También avisa de apps nuevas o cambiadas.
 func (a *App) seeApp(pi *procInfo, now time.Time) {
 	key := pi.Key
+	if key == strings.ToLower(selfExe()) {
+		return
+	}
 	rec := a.cfg.Apps[key]
-	if rec == nil {
+	isNew := rec == nil
+	if isNew {
 		size, mt := fileStamp(pi.Path)
 		rec = &AppRecord{Key: key, Path: pi.Path, Name: pi.Name, FirstSeen: now.Unix(), Size: size, ModTime: mt}
 		a.cfg.Apps[key] = rec
 		a.cfgDirty = true
-		a.checked[key] = true
-		if a.firstRun {
-			return
-		}
-		if a.cfg.Mode == "preguntar" && (a.cfg.AskSystem || !isSystemPath(pi.Path)) && key != strings.ToLower(selfExe()) {
-			a.cfg.Pending[key] = now.Unix()
-			path := pi.Path
-			if a.cfg.StrictBlock {
-				// En modo estricto el bloqueo de salida por defecto ya impide la
-				// conexión; no hace falta regla por app. Solo se pide permiso.
-				a.alert("ask", "warn", "¿Permitir conexión?", pi.Name+" intenta conectarse a Internet y está bloqueado hasta que lo autorices.", key)
-			} else {
-				a.queueFW(func() { a.fwResult(fwBlockApp(key, path)); a.markApplied(key, path, true) })
-				a.alert("ask", "warn", "¿Permitir conexión?", pi.Name+" quiere conectarse a Internet. Se ha bloqueado hasta que decidas.", key)
+	}
+
+	// --- Decisión de acceso (modo Preguntar = denegar por defecto) ---
+	if a.cfg.Mode == "preguntar" && pi.Path != "" {
+		sys := isSystemPath(pi.Path)
+		switch {
+		case sys && !a.cfg.AskSystem:
+			// Se permite automáticamente (Windows debe seguir funcionando).
+			if _, ok := a.cfg.Allowed[key]; !ok && !a.cfg.isBlocked(key) {
+				a.cfg.Allowed[key] = pi.Path
+				a.cfgDirty = true
+				a.queueFW(a.syncRules)
 			}
-			go a.onAsk() // trae la ventana al frente para mostrar el pop-up
-			return
+		case !a.cfg.isAllowed(key) && !a.cfg.isBlocked(key):
+			// App de usuario sin decisión: queda bloqueada por defecto y se pregunta.
+			if _, ok := a.cfg.Pending[key]; !ok {
+				a.cfg.Pending[key] = now.Unix()
+				a.cfgDirty = true
+				lvl := "warn"
+				a.alert("ask", lvl, "¿Permitir conexión?", pi.Name+" quiere conectarse a Internet. Está bloqueado hasta que decidas.", key)
+				go a.onAsk() // trae la ventana al frente para mostrar el pop-up
+			}
 		}
-		a.alert("newapp", "info", "Nueva app con acceso a la red", pi.Name+" se ha conectado por primera vez.\n"+pi.Path, key)
+	}
+
+	if isNew {
+		if a.cfg.Mode != "preguntar" && !a.firstRun {
+			a.alert("newapp", "info", "Nueva app con acceso a la red", pi.Name+" se ha conectado por primera vez.\n"+pi.Path, key)
+		}
+		a.checked[key] = true
 		return
 	}
+
+	// --- Detección de cambios del ejecutable (una vez por sesión) ---
 	if a.checked[key] {
 		return
 	}
@@ -951,7 +981,9 @@ func (a *App) syncRules() { a.syncRulesForce(false) }
 
 func (a *App) syncRulesForce(force bool) {
 	a.mu.Lock()
-	strict := a.cfg.StrictBlock && a.cfg.Mode == "preguntar"
+	// En modo "Preguntar" se deniega la salida por defecto, así que se gestionan
+	// reglas de PERMISO para lo aprobado.
+	strict := a.cfg.Mode == "preguntar"
 	want := a.cfg.desiredBlocked()
 	applied := map[string]string{}
 	for k, v := range a.cfg.Applied {
@@ -963,7 +995,8 @@ func (a *App) syncRulesForce(force bool) {
 			paths[k] = r.Path
 		}
 	}
-	// Reglas de permiso: solo en modo estricto, para apps permitidas que no estén bloqueadas.
+	// Reglas de permiso: apps aprobadas que no estén bloqueadas y, para no romper
+	// Windows, todas las apps del sistema (salvo que se pida preguntar por ellas).
 	wantAllow := map[string]string{}
 	if strict {
 		for k := range a.cfg.Allowed {
@@ -978,6 +1011,13 @@ func (a *App) syncRulesForce(force bool) {
 			}
 			if p != "" {
 				wantAllow[k] = p
+			}
+		}
+		if !a.cfg.AskSystem {
+			for k, r := range a.cfg.Apps {
+				if r.Path != "" && isSystemPath(r.Path) && !a.cfg.isBlocked(k) {
+					wantAllow[k] = r.Path
+				}
 			}
 		}
 	}

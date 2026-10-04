@@ -370,7 +370,7 @@ function onState(s) {
   const warns = [];
   if (s.danger) warns.push(`<span class="pill danger" title="Programas peligrosos detectados">⚠ ${s.danger} peligro${s.danger > 1 ? 's' : ''}</span>`);
   else if (s.threats) warns.push(`<span class="pill warn">${s.threats} sospechoso${s.threats > 1 ? 's' : ''}</span>`);
-  if (s.strict) warns.push(`<span class="pill ok" title="Bloqueo de salida por defecto: cada programa nuevo pide permiso. Activo aunque reinicies.">🔒 Bloqueo estricto</span>`);
+  if (s.mode === 'preguntar') warns.push(`<span class="pill ok" title="Se deniega la salida por defecto: cada programa pide permiso. Activo aunque reinicies.">🔒 Bloqueo por defecto</span>`);
   if (s.guard) warns.push(`<span class="pill" title="Reactiva el firewall y reaplica las reglas automáticamente">🛡️ Guardián</span>`);
   if (s.blocked) warns.push(`<span class="pill">${s.blocked} app${s.blocked > 1 ? 's' : ''} bloqueada${s.blocked > 1 ? 's' : ''}</span>`);
   if (!s.etw) warns.push(`<span class="pill warn" title="${esc(s.etwErr || '')}">Tráfico por app no disponible</span>`);
@@ -516,12 +516,11 @@ function renderFwHero(s) {
   const el = $('#fwHero');
   const protected_ = s.mode !== 'monitor' || s.blocked > 0;
   const big = s.mode === 'bloquear' ? ['danger', 'i-lock', 'Todo bloqueado']
-    : s.strict ? ['ok', 'i-shield', 'Protección máxima']
-      : s.mode === 'preguntar' ? ['warn', 'i-shield', 'Preguntando antes de conectar']
-        : ['ok', 'i-fire', 'Firewall activo'];
+    : s.mode === 'preguntar' ? ['ok', 'i-shield', 'Protegido · pregunta antes de conectar']
+      : ['warn', 'i-fire', 'Solo monitorizando (no bloquea)'];
   const chips = [];
   chips.push(`<span class="pill ${s.blocked ? '' : ''}">${s.blocked} bloqueada${s.blocked === 1 ? '' : 's'}</span>`);
-  if (s.strict) chips.push(`<span class="pill ok">🔒 Bloqueo estricto</span>`);
+  if (s.mode === 'preguntar') chips.push(`<span class="pill ok">🔒 Bloqueo por defecto</span>`);
   if (s.guard) chips.push(`<span class="pill">🛡️ Guardián</span>`);
   chips.push(`<span class="pill ${s.installed ? 'ok' : 'warn'}">${s.installed ? '✓ Instalado' : '⚠ No instalado'}</span>`);
   const h = `
@@ -557,8 +556,8 @@ function renderFirewall() {
   keyedRender($('#askList'), pend, a => a.key, a => `<div class="ask">${appIcon(a.path, a.name)}<div class="grow" style="min-width:0"><div><b>${esc(a.name)}</b> quiere conectarse a Internet</div><div class="small muted ellipsis">${esc(a.path)}</div></div><button class="btn primary" data-act="ask-allow" data-key="${esc(a.key)}">Permitir</button><button class="btn danger" data-act="ask-block" data-key="${esc(a.key)}">Bloquear</button></div>`);
 
   const mc = {
-    monitor: ['i-graph', 'ok', 'Modo Monitorizar', 'Todas las apps pueden conectarse salvo las que bloquees. Se te avisa cuando una app se conecta por primera vez.'],
-    preguntar: ['i-shield', 'warn', 'Modo Preguntar antes de conectar', 'Las apps nuevas se bloquean al conectarse por primera vez hasta que decidas si permitirlas. Las apps de Windows se permiten automáticamente (configurable en Ajustes).'],
+    monitor: ['i-graph', 'warn', 'Modo Monitorizar (no bloquea)', 'Todas las apps pueden conectarse salvo las que bloquees manualmente. Solo vigila; no pide permiso.'],
+    preguntar: ['i-shield', 'ok', 'Modo Preguntar — filtro activo', 'Se DENIEGA la salida por defecto: ningún programa de usuario se conecta hasta que lo permitas con el pop-up. Las apps de Windows se permiten solas para no romper el sistema (configurable en Ajustes). Las decisiones se guardan y siguen tras reiniciar.'],
     bloquear: ['i-lock', 'danger', 'Modo Bloquear todo', 'El Firewall de Windows bloquea todo el tráfico saliente y entrante. Ninguna app puede conectarse a Internet.'],
   }[s.mode];
   const mh = `<div class="stat"><div class="ic ${mc[1]}"><svg><use href="#${mc[0]}"/></svg></div><div><div class="t">${mc[2]} · perfil «${esc(s.profile)}»</div><div class="d">${mc[3]}</div></div></div>`;
@@ -962,10 +961,10 @@ async function loadConfig() {
 
   $('#firewallSettings').innerHTML =
     settingRow('✨ Modo simple', 'Interfaz ultra sencilla: solo Firewall y Amenazas. Oculta todo lo demás (puedes volver cuando quieras).', sw('simple', c.simple)) +
-    settingRow('🔒 Bloqueo estricto <span class="tag accent">máximo control</span>', 'Bloquea por defecto TODA conexión de salida en el Firewall de Windows. Cualquier programa nuevo queda bloqueado y te pide permiso antes de dejarlo conectar. <b>Esto sigue activo aunque reinicies o cierres MiniWall.</b>', sw('strictBlock', c.strictBlock)) +
+    `<div class="setting"><div class="main"><div>🔒 Modo «Preguntar» = bloqueo por defecto</div><div class="d">Cuando el modo es <b>Preguntar</b>, MiniWall deniega TODA la salida por defecto en el Firewall de Windows: ningún programa de usuario se conecta hasta que lo permitas. Es el filtro principal y sigue activo tras reiniciar. Cámbialo desde el panel del Firewall.</div></div></div>` +
     settingRow('🛡️ Protección reforzada (guardián)', 'Reactiva el Firewall de Windows si algo lo apaga y vuelve a aplicar tus reglas cada pocos segundos, para que nadie pueda saltárselas.', sw('guard', c.guard)) +
     settingRow('Iniciar con Windows', 'Arranca en segundo plano al iniciar sesión, para seguir vigilando y preguntando por programas nuevos.', sw('autostart', c.autostart)) +
-    settingRow('Preguntar también por apps de Windows', 'En modo Preguntar, incluye los programas de C:\\Windows (puede cortar servicios del sistema).', sw('askSystem', c.askSystem)) +
+    settingRow('Preguntar también por apps de Windows', 'Incluye los programas de C:\\Windows en las preguntas. ⚠ Puede cortar servicios del sistema; déjalo desactivado salvo que sepas lo que haces.', sw('askSystem', c.askSystem)) +
     settingRow('Quitar todas las reglas de MiniWall', 'Elimina del Firewall de Windows todo lo que MiniWall ha bloqueado y desactiva el bloqueo estricto. Úsalo antes de desinstalar.', '<button class="btn sm danger" data-act="rules-clear">Quitar reglas</button>');
 
   const inst = (S.last && S.last.installed);

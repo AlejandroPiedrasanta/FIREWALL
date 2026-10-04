@@ -155,6 +155,8 @@ func (c *Config) profile(name string) *Profile {
 
 func (c *Config) active() *Profile { return c.profile(c.Profile) }
 
+func (c *Config) isAllowed(key string) bool { _, ok := c.Allowed[key]; return ok }
+
 // desiredBlocked: apps que deben tener regla de bloqueo ahora mismo.
 func (c *Config) desiredBlocked() map[string]bool {
 	m := map[string]bool{}

@@ -349,6 +349,7 @@ var tcpStates = map[uint32]string{
 
 const tcpEstablished = 5
 const tcpListen = 2
+const tcpSynSent = 3 // intento de conexión saliente (puede estar siendo bloqueado)
 
 func fetchTable(p *windows.LazyProc, af, class uint32) []byte {
 	if p.Find() != nil {
