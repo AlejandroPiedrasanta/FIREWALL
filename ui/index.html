@@ -1,0 +1,290 @@
+<!doctype html>
+<html lang="es" data-theme="oscuro">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MiniWall</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute">
+  <defs>
+    <symbol id="i-graph" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="m7 15 4-5 3 3 5-7"/></symbol>
+    <symbol id="i-fire" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2s4 4 4 8a4 4 0 0 1-8 0c0-1.5.5-2.5.5-2.5S6 9 6 13a6 6 0 0 0 12 0c0-6-6-11-6-11z"/></symbol>
+    <symbol id="i-bars" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 20V10M12 20V4M18 20v-7"/></symbol>
+    <symbol id="i-globe" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></symbol>
+    <symbol id="i-wifi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M2 8.8a15 15 0 0 1 20 0M5 12.5a10 10 0 0 1 14 0M8.5 16a5 5 0 0 1 7 0"/><circle cx="12" cy="19.5" r=".8" fill="currentColor"/></symbol>
+    <symbol id="i-shield" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M12 3 4 6v6c0 5 3.5 8 8 9 4.5-1 8-4 8-9V6z"/><path d="m9 12 2 2 4-4" stroke-linecap="round"/></symbol>
+    <symbol id="i-cpu" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="6" y="6" width="12" height="12" rx="2"/><path d="M9 2v4M15 2v4M9 18v4M15 18v4M2 9h4M2 15h4M18 9h4M18 15h4"/></symbol>
+    <symbol id="i-bell" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 1 1 12 0c0 7 3 8 3 8H3s3-1 3-8"/><path d="M10 20a2 2 0 0 0 4 0"/></symbol>
+    <symbol id="i-gear" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></symbol>
+    <symbol id="i-mini" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="4" width="18" height="16" rx="2"/><rect x="11" y="12" width="8" height="6" rx="1" fill="currentColor" stroke="none"/></symbol>
+    <symbol id="i-cam" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><rect x="2" y="6" width="14" height="12" rx="2"/><path d="m16 10 6-3v10l-6-3z"/></symbol>
+    <symbol id="i-mic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v4"/></symbol>
+    <symbol id="i-monitor" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="2" y="4" width="20" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></symbol>
+    <symbol id="i-alert" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/></symbol>
+    <symbol id="i-info" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 16v-4M12 8h.01"/></symbol>
+    <symbol id="i-lock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></symbol>
+    <symbol id="i-plug" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9 2v6M15 2v6M6 8h12v4a6 6 0 0 1-12 0zM12 18v4"/></symbol>
+    <symbol id="i-left" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m15 18-6-6 6-6"/></symbol>
+    <symbol id="i-right" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m9 18 6-6-6-6"/></symbol>
+  </defs>
+</svg>
+
+<header class="topbar">
+  <div class="brand">
+    <svg viewBox="0 0 32 32"><defs><linearGradient id="lg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#2dd4bf"/><stop offset="1" stop-color="#3b82c4"/></linearGradient></defs><rect width="32" height="32" rx="8" fill="url(#lg)"/><path d="M16 6 8.5 8.8v6.1c0 4.9 3.2 8.2 7.5 9.6 4.3-1.4 7.5-4.7 7.5-9.6V8.8z" fill="#0f1720" stroke="#eaf6ff" stroke-width="1.3"/><path d="M11 16h2.3l1.5-4 2.2 7 1.5-3.6H21" fill="none" stroke="#40f2cc" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    MiniWall
+  </div>
+  <nav class="tabs">
+    <button class="tab active" data-tab="grafico"><svg><use href="#i-graph"/></svg><span class="lbl">Gráfico</span></button>
+    <button class="tab" data-tab="firewall"><svg><use href="#i-fire"/></svg><span class="lbl">Firewall</span></button>
+    <button class="tab" data-tab="uso"><svg><use href="#i-bars"/></svg><span class="lbl">Uso</span></button>
+    <button class="tab" data-tab="mapa"><svg><use href="#i-globe"/></svg><span class="lbl">Mapa</span></button>
+    <button class="tab" data-tab="red"><svg><use href="#i-wifi"/></svg><span class="lbl">Red</span></button>
+    <button class="tab" data-tab="seguridad"><svg><use href="#i-shield"/></svg><span class="lbl">Seguridad</span></button>
+    <button class="tab" data-tab="sistema"><svg><use href="#i-cpu"/></svg><span class="lbl">Sistema</span></button>
+    <button class="tab" data-tab="alertas"><svg><use href="#i-bell"/></svg><span class="lbl">Alertas</span> <span class="badge hidden" id="badge">0</span></button>
+  </nav>
+  <div class="top-actions">
+    <button class="icon-btn" id="miniBtn" title="Minigráfico (siempre visible)"><svg><use href="#i-mini"/></svg></button>
+    <button class="icon-btn" data-tab="ajustes" title="Ajustes"><svg><use href="#i-gear"/></svg></button>
+  </div>
+</header>
+
+<div class="statusbar">
+  <span><span class="down">↓</span> <b class="num" id="sbDown">0 B/s</b></span>
+  <span><span class="up">↑</span> <b class="num" id="sbUp">0 B/s</b></span>
+  <span>Hoy: <b class="num" id="sbToday">0 B</b></span>
+  <span><b class="num" id="sbConns">0</b> conexiones · <b class="num" id="sbHosts">0</b> hosts</span>
+  <span class="grow"></span>
+  <span id="sbWarn"></span>
+  <span>Perfil: <b id="sbProfile">—</b></span>
+  <div class="seg sm" id="modeSeg" title="Modo del firewall">
+    <button data-mode="monitor" title="Todas las apps se conectan salvo las bloqueadas">Monitorizar</button>
+    <button data-mode="preguntar" title="Las apps nuevas se bloquean hasta que las permitas">Preguntar</button>
+    <button data-mode="bloquear" title="Bloquea todo el tráfico de red">Bloquear todo</button>
+  </div>
+</div>
+
+<main>
+  <!-- ====================== GRÁFICO ====================== -->
+  <section class="view active" id="v-grafico">
+    <div class="toolbar">
+      <div class="big-rates">
+        <div><div class="l">Descarga</div><div class="v down num" id="gDown">0 B/s</div></div>
+        <div><div class="l">Subida</div><div class="v up num" id="gUp">0 B/s</div></div>
+      </div>
+      <span class="grow"></span>
+      <div class="row" id="rangeChips">
+        <button class="chip on" data-range="live">5 min</button>
+        <button class="chip" data-range="1h">1 hora</button>
+        <button class="chip" data-range="24h">24 horas</button>
+        <button class="chip" data-range="7d">7 días</button>
+        <button class="chip" data-range="30d">30 días</button>
+      </div>
+      <label class="row small muted" title="Máquina del tiempo: consulta cualquier día del historial">Máquina del tiempo
+        <input type="date" id="tmDate">
+      </label>
+    </div>
+    <div class="card">
+      <div class="row" style="margin-bottom:8px">
+        <div class="legend"><span><i style="background:var(--down)"></i>Recibido</span><span><i style="background:var(--up)"></i>Enviado</span></div>
+        <span class="grow"></span>
+        <span class="small muted" id="chartInfo">En vivo · 1 muestra por segundo</span>
+      </div>
+      <div class="chart-wrap" id="mainChartWrap"><canvas id="mainChart"></canvas><div class="tooltip" id="mainTip"></div></div>
+    </div>
+    <div class="grid g2" style="margin-top:14px">
+      <div class="card">
+        <h3><span id="appsTitle">Apps usando la red ahora</span><span class="grow"></span><span class="small muted" id="appsHint"></span></h3>
+        <div class="list" id="liveApps"></div>
+      </div>
+      <div class="card">
+        <h3 id="sideTitle">Hoy</h3>
+        <div id="sidePanel"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ====================== FIREWALL ====================== -->
+  <section class="view" id="v-firewall">
+    <div class="toolbar">
+      <h2>Firewall</h2>
+      <select id="profileSel" title="Perfil de firewall"></select>
+      <button class="btn sm" data-act="profile-new">Nuevo perfil</button>
+      <button class="btn sm" data-act="profile-rename">Renombrar</button>
+      <button class="btn sm" data-act="profile-delete">Eliminar</button>
+      <span class="grow"></span>
+      <div class="row" id="fwFilter">
+        <button class="chip on" data-f="all">Todas</button>
+        <button class="chip" data-f="active">Activas</button>
+        <button class="chip" data-f="blocked">Bloqueadas</button>
+      </div>
+      <input type="search" id="fwSearch" placeholder="Buscar app…" style="width:200px">
+    </div>
+    <div id="askList"></div>
+    <div class="card" id="modeCard"></div>
+    <div class="card" style="padding:6px 8px">
+      <div class="table-scroll scroll">
+        <table>
+          <thead><tr><th style="width:38px"></th><th>Aplicación</th><th class="r">↓ Ahora</th><th class="r">↑ Ahora</th><th class="r">Hoy</th><th class="r">Conexiones</th><th class="r" style="width:120px">Acceso a red</th></tr></thead>
+          <tbody id="fwBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- ====================== USO ====================== -->
+  <section class="view" id="v-uso">
+    <div class="toolbar">
+      <h2>Uso de datos</h2>
+      <div class="row" id="usePeriod">
+        <button class="chip" data-p="day">Día</button>
+        <button class="chip on" data-p="week">Semana</button>
+        <button class="chip" data-p="month">Mes</button>
+      </div>
+      <button class="icon-btn" data-act="use-prev" title="Anterior"><svg><use href="#i-left"/></svg></button>
+      <b id="useLabel"></b>
+      <button class="icon-btn" data-act="use-next" title="Siguiente"><svg><use href="#i-right"/></svg></button>
+    </div>
+    <div class="grid g4">
+      <div class="card"><div class="small muted">Recibido</div><div class="gauge"><span class="v down num" id="useRx">0</span></div></div>
+      <div class="card"><div class="small muted">Enviado</div><div class="gauge"><span class="v up num" id="useTx">0</span></div></div>
+      <div class="card"><div class="small muted">Total</div><div class="gauge"><span class="v num" id="useTotal">0</span></div></div>
+      <div class="card" id="limitCard"><div class="small muted">Límite de datos</div><div id="limitBody"></div></div>
+    </div>
+    <div class="card" style="margin-top:14px">
+      <div class="chart-wrap sm" style="height:200px"><canvas id="useChart"></canvas><div class="tooltip" id="useTip"></div></div>
+    </div>
+    <div class="grid g3" style="margin-top:14px">
+      <div class="card"><h3>Apps</h3><div class="list" id="useApps"></div></div>
+      <div class="card"><h3>Hosts</h3><div class="list" id="useHosts"></div></div>
+      <div class="card"><h3>Países</h3><div class="list" id="useCountries"></div></div>
+    </div>
+  </section>
+
+  <!-- ====================== MAPA ====================== -->
+  <section class="view" id="v-mapa">
+    <div class="toolbar">
+      <h2>Mapa de conexiones</h2>
+      <div class="row" id="mapMode">
+        <button class="chip on" data-m="now">Conexiones actuales</button>
+        <button class="chip" data-m="today">Tráfico de hoy</button>
+      </div>
+      <span class="grow"></span>
+      <span class="small muted" id="mapSel"></span>
+      <button class="btn sm hidden" data-act="map-clear">Ver todos</button>
+    </div>
+    <div class="grid g-side">
+      <div class="card"><div class="map-wrap" id="mapWrap"></div><div class="tooltip" id="mapTip"></div></div>
+      <div class="card" style="padding:10px">
+        <h3 style="padding:4px 6px 0">Hosts <span class="muted" id="mapCount"></span></h3>
+        <div class="list scroll" id="mapHosts" style="max-height:440px;overflow:auto"></div>
+      </div>
+    </div>
+    <div class="card" style="margin-top:14px;padding:6px 8px">
+      <h3 style="padding:8px 8px 0">Conexiones activas</h3>
+      <div class="table-scroll scroll" style="max-height:380px">
+        <table><thead><tr><th>App</th><th>Host remoto</th><th>País</th><th>Puerto</th><th>Protocolo</th><th>Estado</th></tr></thead><tbody id="connBody"></tbody></table>
+      </div>
+    </div>
+  </section>
+
+  <!-- ====================== RED ====================== -->
+  <section class="view" id="v-red">
+    <div class="toolbar"><h2>Tu red</h2></div>
+    <div class="grid g2">
+      <div class="card" id="wifiCard"></div>
+      <div class="card" id="ifaceCard"></div>
+    </div>
+    <div class="card">
+      <h3>Dispositivos en tu red <span class="muted small" id="devCount"></span></h3>
+      <p class="small muted" style="margin:0 0 8px">Dispositivos detectados de forma pasiva en la caché ARP de este equipo (aquellos con los que tu PC se ha comunicado recientemente). Puedes ponerles nombre para reconocerlos.</p>
+      <div class="table-scroll scroll">
+        <table><thead><tr><th></th><th>Nombre</th><th>IP</th><th>MAC</th><th>Nombre de red</th><th>Visto por primera vez</th><th>Última vez</th><th></th></tr></thead><tbody id="devBody"></tbody></table>
+      </div>
+    </div>
+  </section>
+
+  <!-- ====================== SEGURIDAD ====================== -->
+  <section class="view" id="v-seguridad">
+    <div class="toolbar"><h2>Seguridad y privacidad</h2></div>
+    <div class="grid g3" id="secCards"></div>
+    <div class="grid g2" style="margin-top:14px">
+      <div class="card"><h3><svg width="16" height="16"><use href="#i-cam"/></svg>Cámara y micrófono</h3><div class="list" id="privList"></div></div>
+      <div class="card" style="padding:10px 8px"><h3 style="padding:4px 8px 0">Puertos abiertos a la red</h3>
+        <div class="table-scroll scroll" style="max-height:420px"><table><thead><tr><th>App</th><th>Protocolo</th><th>Dirección</th><th class="r">Puerto</th></tr></thead><tbody id="listenBody"></tbody></table></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ====================== SISTEMA ====================== -->
+  <section class="view" id="v-sistema">
+    <div class="toolbar"><h2>Recursos del equipo</h2><span class="grow"></span><span class="small muted" id="sysInfo"></span></div>
+    <div class="grid g2">
+      <div class="card"><div class="row"><h3 style="margin:0">Procesador</h3><span class="grow"></span><span class="gauge"><span class="v num" id="cpuV">0%</span></span></div>
+        <div class="chart-wrap xs"><canvas id="cpuChart"></canvas></div></div>
+      <div class="card"><div class="row"><h3 style="margin:0">Memoria</h3><span class="grow"></span><span class="gauge"><span class="v num" id="memV">0%</span></span></div>
+        <div class="small muted" id="memD"></div>
+        <div class="chart-wrap xs"><canvas id="memChart"></canvas></div></div>
+    </div>
+    <div class="grid g2" style="margin-top:14px">
+      <div class="card"><h3>Discos</h3><div id="diskList"></div></div>
+      <div class="card"><h3>Adaptadores de red</h3><div id="sysIfaces"></div></div>
+    </div>
+  </section>
+
+  <!-- ====================== ALERTAS ====================== -->
+  <section class="view" id="v-alertas">
+    <div class="toolbar">
+      <h2>Alertas</h2>
+      <div class="row wrap" id="alertFilter">
+        <button class="chip on" data-k="">Todas</button>
+        <button class="chip" data-k="newapp,ask">Apps nuevas</button>
+        <button class="chip" data-k="appchanged">Cambios</button>
+        <button class="chip" data-k="device">Dispositivos</button>
+        <button class="chip" data-k="rdp,eviltwin,privacy">Seguridad</button>
+        <button class="chip" data-k="limit">Datos</button>
+      </div>
+      <span class="grow"></span>
+      <select id="snoozeSel" title="Silenciar notificaciones">
+        <option value="">Silenciar…</option>
+        <option value="15">15 minutos</option>
+        <option value="60">1 hora</option>
+        <option value="480">8 horas</option>
+        <option value="0">Reactivar</option>
+      </select>
+      <button class="btn sm" data-act="alerts-read">Marcar como leídas</button>
+      <button class="btn sm danger" data-act="alerts-clear">Borrar todo</button>
+    </div>
+    <div class="card"><div id="alertList"></div></div>
+  </section>
+
+  <!-- ====================== AJUSTES ====================== -->
+  <section class="view" id="v-ajustes">
+    <div class="toolbar"><h2>Ajustes</h2></div>
+    <div class="card"><h3>Apariencia</h3><div class="themes" id="themeList"></div></div>
+    <div class="grid g2" style="margin-top:14px">
+      <div class="card"><h3>Alertas discretas</h3><div id="notifySettings"></div></div>
+      <div class="card"><h3>General</h3><div id="generalSettings"></div></div>
+    </div>
+    <div class="card"><h3>Acerca de</h3>
+      <p class="small muted" style="margin:0">MiniWall <span id="ver"></span> — firewall y monitor de red minimalista. Usa el Firewall de Windows para bloquear apps y ETW para medir el tráfico de cada app. Tus datos se guardan solo en este equipo (%APPDATA%\MiniWall).<br>
+      Mapa: Natural Earth (dominio público). Geolocalización IP: ip-location-db / geo-whois-asn-country (CC0).</p>
+    </div>
+  </section>
+</main>
+
+<div id="mini">
+  <div class="mini-rates"><span class="down num" id="miniDown">↓ 0 B/s</span><span class="up num" id="miniUp">↑ 0 B/s</span></div>
+  <div class="hint">doble clic para ampliar</div>
+  <canvas id="miniChart"></canvas>
+</div>
+
+<div class="toast-area" id="toasts"></div>
+
+<script src="worldmap.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
