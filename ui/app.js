@@ -291,7 +291,7 @@ function roundRect(ctx, x, y, w, h, rad) {
    Estado global
    ====================================================================== */
 const S = {
-  tab: 'grafico', range: 'live', tmDay: '', last: null, hist: null, mark: null,
+  tab: 'firewall', range: 'live', tmDay: '', last: null, hist: null, mark: null,
   fwFilter: 'all', fwSearch: '', usePeriod: 'week', useOffset: 0, mapMode: 'now', mapCountry: '',
   alertKinds: '', lastAlertId: -1, cfg: null, conns: null, usageToday: null, mini: false,
 };
@@ -367,10 +367,15 @@ function onState(s) {
   $('#sbProfile').textContent = s.profile;
   $$('#modeSeg button').forEach(b => { b.classList.toggle('on', b.dataset.mode === s.mode); b.classList.toggle('block', b.dataset.mode === 'bloquear'); });
   const warns = [];
+  if (s.strict) warns.push(`<span class="pill ok" title="Bloqueo de salida por defecto: cada programa nuevo pide permiso. Activo aunque reinicies.">🔒 Bloqueo estricto</span>`);
+  if (s.guard) warns.push(`<span class="pill" title="Reactiva el firewall y reaplica las reglas automáticamente">🛡️ Guardián</span>`);
+  if (s.blocked) warns.push(`<span class="pill">${s.blocked} app${s.blocked > 1 ? 's' : ''} bloqueada${s.blocked > 1 ? 's' : ''}</span>`);
   if (!s.etw) warns.push(`<span class="pill warn" title="${esc(s.etwErr || '')}">Tráfico por app no disponible</span>`);
   if (s.fwErr) warns.push(`<span class="pill danger" title="${esc(s.fwErr)}">Error del firewall</span>`);
   if (s.snoozed) warns.push(`<span class="pill">Alertas silenciadas</span>`);
+  if (!s.installed) warns.push(`<span class="pill warn">No instalado</span>`);
   $('#sbWarn').innerHTML = warns.join(' ');
+  renderInstallBanner();
   const badge = $('#badge');
   badge.textContent = s.unread > 99 ? '99+' : s.unread;
   badge.classList.toggle('hidden', !s.unread);
@@ -495,12 +500,43 @@ $('#tmDate').addEventListener('change', e => {
 /* ======================================================================
    Pestaña Firewall
    ====================================================================== */
+function renderFwHero(s) {
+  const el = $('#fwHero');
+  const protected_ = s.mode !== 'monitor' || s.blocked > 0;
+  const big = s.mode === 'bloquear' ? ['danger', 'i-lock', 'Todo bloqueado']
+    : s.strict ? ['ok', 'i-shield', 'Protección máxima']
+      : s.mode === 'preguntar' ? ['warn', 'i-shield', 'Preguntando antes de conectar']
+        : ['ok', 'i-fire', 'Firewall activo'];
+  const chips = [];
+  chips.push(`<span class="pill ${s.blocked ? '' : ''}">${s.blocked} bloqueada${s.blocked === 1 ? '' : 's'}</span>`);
+  if (s.strict) chips.push(`<span class="pill ok">🔒 Bloqueo estricto</span>`);
+  if (s.guard) chips.push(`<span class="pill">🛡️ Guardián</span>`);
+  chips.push(`<span class="pill ${s.installed ? 'ok' : 'warn'}">${s.installed ? '✓ Instalado' : '⚠ No instalado'}</span>`);
+  const h = `
+    <div class="hero-main">
+      <div class="hero-shield ${big[0]}"><svg><use href="#${big[1]}"/></svg></div>
+      <div class="grow">
+        <div class="hero-title">${big[2]}</div>
+        <div class="muted small">Perfil «${esc(s.profile)}» · administrador · ${s.conns} conexiones activas</div>
+        <div class="row wrap" style="margin-top:9px;gap:6px">${chips.join('')}</div>
+      </div>
+      <div class="seg hero-seg">
+        <button data-mode="monitor" class="${s.mode === 'monitor' ? 'on' : ''}">Monitorizar</button>
+        <button data-mode="preguntar" class="${s.mode === 'preguntar' ? 'on' : ''}">Preguntar</button>
+        <button data-mode="bloquear" class="${s.mode === 'bloquear' ? 'on block' : 'block'}">Bloquear todo</button>
+      </div>
+    </div>`;
+  if (el._h !== h) { el.innerHTML = h; el._h = h; }
+}
+
 function renderFirewall() {
   const s = S.last;
   if (!s) return;
   const sel = $('#profileSel');
   const opts = s.profiles.map(p => `<option${p === s.profile ? ' selected' : ''}>${esc(p)}</option>`).join('');
   if (sel._o !== opts) { sel.innerHTML = opts; sel._o = opts; }
+
+  renderFwHero(s);
 
   const pend = s.apps.filter(a => a.pending);
   keyedRender($('#askList'), pend, a => a.key, a => `<div class="ask">${appIcon(a.path, a.name)}<div class="grow" style="min-width:0"><div><b>${esc(a.name)}</b> quiere conectarse a Internet</div><div class="small muted ellipsis">${esc(a.path)}</div></div><button class="btn primary" data-act="ask-allow" data-key="${esc(a.key)}">Permitir</button><button class="btn danger" data-act="ask-block" data-key="${esc(a.key)}">Bloquear</button></div>`);
@@ -814,10 +850,30 @@ async function loadConfig() {
     settingRow('Límite de datos mensual', 'Avisa al llegar al 80 % y al 100 %. 0 = sin límite.', `<span class="row" style="gap:6px"><input type="number" min="0" step="1" value="${c.limitGB}" data-cfg="limitGB" style="width:90px"> GB</span>`) +
     settingRow('Día de inicio del periodo', 'Día del mes en que se reinicia tu tarifa.', `<input type="number" min="1" max="28" value="${c.billingDay}" data-cfg="billingDay" style="width:70px">`) +
     settingRow('Historial de gráficos', 'Cuánto tiempo guardar el detalle por app y por hora.', `<select data-cfg="retention">${[7, 30, 90, 180, 365].map(d => `<option value="${d}"${c.retention === d ? ' selected' : ''}>${d} días</option>`).join('')}</select>`) +
-    settingRow('Cerrar a la bandeja', 'Al cerrar la ventana, MiniWall sigue protegiendo desde la bandeja del sistema.', sw('closeToTray', c.closeToTray)) +
-    settingRow('Iniciar con Windows', 'Se abre minimizado al iniciar sesión.', sw('autostart', c.autostart)) +
+    settingRow('Cerrar a la bandeja', 'Al cerrar la ventana, MiniWall sigue protegiendo desde la bandeja del sistema.', sw('closeToTray', c.closeToTray));
+
+  $('#firewallSettings').innerHTML =
+    settingRow('🔒 Bloqueo estricto <span class="tag accent">máximo control</span>', 'Bloquea por defecto TODA conexión de salida en el Firewall de Windows. Cualquier programa nuevo queda bloqueado y te pide permiso antes de dejarlo conectar. <b>Esto sigue activo aunque reinicies o cierres MiniWall.</b>', sw('strictBlock', c.strictBlock)) +
+    settingRow('🛡️ Protección reforzada (guardián)', 'Reactiva el Firewall de Windows si algo lo apaga y vuelve a aplicar tus reglas cada pocos segundos, para que nadie pueda saltárselas.', sw('guard', c.guard)) +
+    settingRow('Iniciar con Windows', 'Arranca en segundo plano al iniciar sesión, para seguir vigilando y preguntando por programas nuevos.', sw('autostart', c.autostart)) +
     settingRow('Preguntar también por apps de Windows', 'En modo Preguntar, incluye los programas de C:\\Windows (puede cortar servicios del sistema).', sw('askSystem', c.askSystem)) +
-    settingRow('Quitar todas las reglas de MiniWall', 'Elimina del Firewall de Windows todo lo que MiniWall ha bloqueado. Úsalo antes de desinstalar.', '<button class="btn sm danger" data-act="rules-clear">Quitar reglas</button>');
+    settingRow('Quitar todas las reglas de MiniWall', 'Elimina del Firewall de Windows todo lo que MiniWall ha bloqueado y desactiva el bloqueo estricto. Úsalo antes de desinstalar.', '<button class="btn sm danger" data-act="rules-clear">Quitar reglas</button>');
+
+  const inst = (S.last && S.last.installed);
+  $('#installCard').innerHTML = inst
+    ? `<div class="stat"><div class="ic ok"><svg><use href="#i-shield"/></svg></div><div class="grow"><div class="t">MiniWall está instalado en el equipo</div><div class="d">Se ejecuta desde Archivos de programa y arranca con Windows. Puedes desinstalarlo cuando quieras.</div><div style="margin-top:10px"><button class="btn sm danger" data-act="uninstall">Desinstalar MiniWall</button></div></div></div>`
+    : `<div class="stat"><div class="ic warn"><svg><use href="#i-info"/></svg></div><div class="grow"><div class="t">Instalar MiniWall en el equipo</div><div class="d">Copia el programa a Archivos de programa, crea accesos directos y lo configura para arrancar con Windows y protegerte siempre, incluso tras reiniciar.</div><div style="margin-top:10px"><button class="btn sm primary" data-act="install">Instalar ahora</button></div></div></div>`;
+}
+
+function renderInstallBanner() {
+  const s = S.last;
+  const b = $('#installBanner');
+  if (!b) return;
+  if (!s || s.installed) { b.classList.add('hidden'); return; }
+  if (b._shown) return;
+  b._shown = true;
+  b.classList.remove('hidden');
+  b.innerHTML = `<svg class="bi"><use href="#i-shield"/></svg><div class="grow"><b>MiniWall aún no está instalado.</b> <span class="muted">Instálalo para que proteja tu equipo siempre y arranque con Windows.</span></div><button class="btn sm primary" data-act="install">Instalar</button><button class="icon-btn" data-act="banner-close" title="Ahora no"><svg><use href="#i-info"/></svg></button>`;
 }
 async function saveCfg(patch) {
   try {
@@ -828,6 +884,12 @@ document.addEventListener('change', e => {
   const t = e.target, path = t.dataset.cfg;
   if (!path || !S.cfg) return;
   let v = t.type === 'checkbox' ? t.checked : t.type === 'number' || t.tagName === 'SELECT' ? Number(t.value) : t.value;
+  if (path === 'strictBlock' && v) {
+    if (!confirm('BLOQUEO ESTRICTO\n\nSe bloqueará por defecto toda conexión de salida. Los programas que ya usas seguirán funcionando, pero cada programa NUEVO quedará bloqueado hasta que lo autorices.\n\nEsto permanece activo aunque reinicies o cierres MiniWall. ¿Activar?')) {
+      t.checked = false; return;
+    }
+    toast('Bloqueo estricto activado', 'A partir de ahora se te preguntará antes de dejar conectar cualquier programa nuevo.', 'info', '', 6000);
+  }
   if (path.startsWith('notify.')) saveCfg({ notify: { ...S.cfg.notify, [path.slice(7)]: v } });
   else saveCfg({ [path]: v });
 });
@@ -878,6 +940,20 @@ async function act(d) {
         if (confirm('Se eliminarán todas las reglas de MiniWall del Firewall de Windows, se vaciarán los perfiles y se volverá al modo Monitorizar. ¿Continuar?')) { await api('rules/clear', {}); toast('Reglas eliminadas', 'MiniWall ya no bloquea ninguna app.', 'info', '', 4000); }
         break;
       case 'fw-enable': await api('firewall/enable', {}); setTimeout(loadSecurity, 1500); break;
+      case 'install':
+        await api('install', {});
+        toast('MiniWall instalado', 'Ya está instalado en el equipo y arrancará con Windows.', 'info', '', 6000);
+        $('#installBanner')?.classList.add('hidden');
+        if (S.last) S.last.installed = true;
+        if (S.tab === 'ajustes') loadConfig();
+        break;
+      case 'uninstall':
+        if (confirm('DESINSTALAR MINIWALL\n\nSe quitarán todas las reglas del Firewall de Windows, los accesos directos y el arranque automático, y MiniWall se cerrará. ¿Continuar?')) {
+          await api('uninstall', {});
+          toast('Desinstalando…', 'MiniWall se está cerrando y eliminando del equipo.', 'info', '', 8000);
+        }
+        break;
+      case 'banner-close': $('#installBanner')?.classList.add('hidden'); break;
       case 'alerts-read': await api('alerts/read', {}); loadAlerts(); break;
       case 'alerts-clear': if (confirm('¿Borrar todas las alertas?')) { await api('alerts/clear', {}); loadAlerts(); } break;
     }
@@ -897,7 +973,7 @@ document.addEventListener('change', e => {
   if (t.type === 'checkbox' && t.dataset.act) act({ act: t.dataset.act, key: t.dataset.key, checked: t.checked });
 });
 
-$('#modeSeg').addEventListener('click', async e => {
+document.addEventListener('click', async e => {
   const b = e.target.closest('[data-mode]');
   if (!b || b.classList.contains('on')) return;
   const m = b.dataset.mode;

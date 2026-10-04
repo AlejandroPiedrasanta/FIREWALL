@@ -37,8 +37,8 @@
     MiniWall
   </div>
   <nav class="tabs">
-    <button class="tab active" data-tab="grafico"><svg><use href="#i-graph"/></svg><span class="lbl">Gráfico</span></button>
-    <button class="tab" data-tab="firewall"><svg><use href="#i-fire"/></svg><span class="lbl">Firewall</span></button>
+    <button class="tab active" data-tab="firewall"><svg><use href="#i-fire"/></svg><span class="lbl">Firewall</span></button>
+    <button class="tab" data-tab="grafico"><svg><use href="#i-graph"/></svg><span class="lbl">Gráfico</span></button>
     <button class="tab" data-tab="uso"><svg><use href="#i-bars"/></svg><span class="lbl">Uso</span></button>
     <button class="tab" data-tab="mapa"><svg><use href="#i-globe"/></svg><span class="lbl">Mapa</span></button>
     <button class="tab" data-tab="red"><svg><use href="#i-wifi"/></svg><span class="lbl">Red</span></button>
@@ -68,8 +68,9 @@
 </div>
 
 <main>
+  <div id="installBanner" class="banner hidden"></div>
   <!-- ====================== GRÁFICO ====================== -->
-  <section class="view active" id="v-grafico">
+  <section class="view" id="v-grafico">
     <div class="toolbar">
       <div class="big-rates">
         <div><div class="l">Descarga</div><div class="v down num" id="gDown">0 B/s</div></div>
@@ -108,9 +109,10 @@
   </section>
 
   <!-- ====================== FIREWALL ====================== -->
-  <section class="view" id="v-firewall">
+  <section class="view active" id="v-firewall">
+    <div id="fwHero" class="card hero"></div>
     <div class="toolbar">
-      <h2>Firewall</h2>
+      <h2>Aplicaciones</h2>
       <select id="profileSel" title="Perfil de firewall"></select>
       <button class="btn sm" data-act="profile-new">Nuevo perfil</button>
       <button class="btn sm" data-act="profile-rename">Renombrar</button>
@@ -264,6 +266,8 @@
   <!-- ====================== AJUSTES ====================== -->
   <section class="view" id="v-ajustes">
     <div class="toolbar"><h2>Ajustes</h2></div>
+    <div class="card" id="installCard"></div>
+    <div class="card"><h3><svg width="16" height="16"><use href="#i-fire"/></svg>Firewall y protección</h3><div id="firewallSettings"></div></div>
     <div class="card"><h3>Apariencia</h3><div class="themes" id="themeList"></div></div>
     <div class="grid g2" style="margin-top:14px">
       <div class="card"><h3>Alertas discretas</h3><div id="notifySettings"></div></div>

@@ -75,6 +75,41 @@ func fwUnblockApp(key, path string) error {
 	return last
 }
 
+// allowRuleName identifica una regla de PERMISO (modo estricto).
+func allowRuleName(key, path, dir string) string {
+	h := fnv.New32a()
+	h.Write([]byte(key))
+	base := cleanName(filepath.Base(path))
+	return fmt.Sprintf("%sPermitir %s [%08x] (%s)", rulePrefix, base, h.Sum32(), dir)
+}
+
+// fwAllowApp crea reglas de permiso explícito para una app. Son necesarias en
+// modo estricto (bloqueo de salida por defecto) para que la app siga conectando.
+func fwAllowApp(key, path string) error {
+	if !validProgram(path) {
+		return fmt.Errorf("ruta no válida: %s", path)
+	}
+	for _, dir := range []string{"out", "in"} {
+		name := allowRuleName(key, path, dir)
+		_ = netsh(fmt.Sprintf(`advfirewall firewall delete rule name="%s"`, name))
+		if err := netsh(fmt.Sprintf(`advfirewall firewall add rule name="%s" dir=%s action=allow program="%s" enable=yes profile=any`, name, dir, path)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func fwUnallowApp(key, path string) error {
+	var last error
+	for _, dir := range []string{"out", "in"} {
+		name := allowRuleName(key, path, dir)
+		if err := netsh(fmt.Sprintf(`advfirewall firewall delete rule name="%s"`, name)); err != nil {
+			last = err
+		}
+	}
+	return last
+}
+
 // fwBlockAll cambia la directiva predeterminada de todos los perfiles.
 func fwBlockAll(on bool) error {
 	pol := "blockinbound,allowoutbound"
@@ -84,7 +119,67 @@ func fwBlockAll(on bool) error {
 	return netsh("advfirewall set allprofiles firewallpolicy " + pol)
 }
 
+// fwStrictOutbound activa/desactiva el bloqueo de salida POR DEFECTO. A
+// diferencia del modo "Bloquear todo", esta directiva permanece en el Firewall
+// de Windows tras reiniciar y aunque MiniWall no se esté ejecutando: cualquier
+// programa sin una regla de permiso explícita queda bloqueado al salir. Es la
+// base del modo "Preguntar" persistente (pide permiso antes de dejar conectar).
+func fwStrictOutbound(on bool) error {
+	pol := "blockinbound,allowoutbound"
+	if on {
+		pol = "blockinbound,blockoutbound"
+	}
+	if err := netsh("advfirewall set allprofiles firewallpolicy " + pol); err != nil {
+		return err
+	}
+	return fwBaseline(on)
+}
+
+const baselineTag = rulePrefix + "Base: "
+
+// fwBaseline crea (o elimina) reglas de permiso imprescindibles para que el
+// equipo siga funcionando con el bloqueo de salida por defecto: DNS, DHCP, NTP
+// y el propio MiniWall. Sin ellas, Windows se quedaría sin resolución de
+// nombres y la red dejaría de funcionar por completo.
+func fwBaseline(on bool) error {
+	rules := []struct{ name, args string }{
+		{"DNS UDP", `dir=out action=allow protocol=UDP remoteport=53`},
+		{"DNS TCP", `dir=out action=allow protocol=TCP remoteport=53`},
+		{"DHCP", `dir=out action=allow protocol=UDP remoteport=67,68`},
+		{"NTP", `dir=out action=allow protocol=UDP remoteport=123`},
+	}
+	for _, r := range rules {
+		full := baselineTag + r.name
+		_ = netsh(fmt.Sprintf(`advfirewall firewall delete rule name="%s"`, full))
+		if on {
+			if err := netsh(fmt.Sprintf(`advfirewall firewall add rule name="%s" %s enable=yes profile=any`, full, r.args)); err != nil {
+				return err
+			}
+		}
+	}
+	// MiniWall siempre puede conectar (resolución inversa de nombres).
+	self := baselineTag + "MiniWall"
+	_ = netsh(fmt.Sprintf(`advfirewall firewall delete rule name="%s"`, self))
+	if on {
+		if exe, err := os.Executable(); err == nil {
+			_ = netsh(fmt.Sprintf(`advfirewall firewall add rule name="%s" dir=out action=allow program="%s" enable=yes profile=any`, self, exe))
+		}
+	}
+	return nil
+}
+
 func fwEnable() error { return netsh("advfirewall set allprofiles state on") }
+
+// fwIsOn indica si el Firewall de Windows está activo en todos los perfiles.
+func fwIsOn() bool {
+	out, err := runHidden("netsh advfirewall show allprofiles state")
+	if err != nil {
+		return true
+	}
+	low := strings.ToLower(out)
+	// "OFF"/"Desactivado" aparece cuando algún perfil está apagado.
+	return !strings.Contains(low, "off") && !strings.Contains(low, "desactiv")
+}
 
 const rdpRule = rulePrefix + "Bloquear Escritorio remoto (entrada)"
 
@@ -126,7 +221,12 @@ func setAutostart(on bool, dir string) error {
   </Settings>
   <Actions Context="Author"><Exec><Command>` + xmlEscape(exe) + `</Command><Arguments>--minimized</Arguments></Exec></Actions>
 </Task>`
-	// schtasks espera el XML en UTF-16 LE con BOM.
+	return writeTaskXML(xml, dir)
+}
+
+// writeTaskXML registra la tarea programada a partir de un XML (UTF-16 LE con
+// BOM, como exige schtasks).
+func writeTaskXML(xml, dir string) error {
 	u := unicode16.Encode([]rune(xml))
 	b := make([]byte, 2+len(u)*2)
 	b[0], b[1] = 0xFF, 0xFE
@@ -134,12 +234,15 @@ func setAutostart(on bool, dir string) error {
 		b[2+i*2] = byte(c)
 		b[3+i*2] = byte(c >> 8)
 	}
+	if dir == "" {
+		dir = os.TempDir()
+	}
 	f := filepath.Join(dir, "autostart.xml")
 	if err := os.WriteFile(f, b, 0o600); err != nil {
 		return err
 	}
 	defer os.Remove(f)
-	_, err = runHidden(`schtasks /create /tn "` + taskName + `" /xml "` + f + `" /f`)
+	_, err := runHidden(`schtasks /create /tn "` + taskName + `" /xml "` + f + `" /f`)
 	return err
 }
 

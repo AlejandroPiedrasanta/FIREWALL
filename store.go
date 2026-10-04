@@ -71,6 +71,10 @@ type Config struct {
 	CloseToTray  bool                   `json:"closeToTray"`
 	AskSystem    bool                   `json:"askSystem"`
 	Autostart    bool                   `json:"autostart"`
+	StrictBlock  bool                   `json:"strictBlock"` // bloqueo por defecto de salida en modo preguntar
+	Guard        bool                   `json:"guard"`       // reaplica reglas y reactiva el firewall periódicamente
+	Installed    bool                   `json:"installed"`   // instalado en el equipo
+	Allowed      map[string]string      `json:"allowed"`     // reglas de permiso creadas (modo estricto): clave → ruta
 	Devices      map[string]*Device     `json:"devices"`
 	Wifi         map[string]*WifiRecord `json:"wifi"`
 }
@@ -85,6 +89,7 @@ func defaultConfig() *Config {
 		BillingDay:  1,
 		Retention:   30,
 		CloseToTray: true,
+		Guard:       true,
 	}
 }
 
@@ -110,6 +115,9 @@ func (c *Config) normalize() {
 	}
 	if c.Applied == nil {
 		c.Applied = map[string]string{}
+	}
+	if c.Allowed == nil {
+		c.Allowed = map[string]string{}
 	}
 	if c.Devices == nil {
 		c.Devices = map[string]*Device{}

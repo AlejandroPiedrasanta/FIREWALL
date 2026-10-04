@@ -170,14 +170,21 @@ func listDisks() []diskInfo {
 
 func runHidden(cmdline string) (string, error) {
 	exe := strings.Fields(cmdline)[0]
-	c := exec.Command(exe)
-	c.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CmdLine: cmdline, CreationFlags: 0x08000000}
+	c := cmdHidden(exe, cmdline)
 	out, err := c.CombinedOutput()
 	s := decodeOEM(out)
 	if err != nil {
 		return s, fmt.Errorf("%s: %v %s", exe, err, strings.TrimSpace(s))
 	}
 	return s, nil
+}
+
+// cmdHidden crea un comando sin ventana de consola (CREATE_NO_WINDOW). El
+// llamador controla su ciclo de vida (Start/Run/CombinedOutput).
+func cmdHidden(exe, cmdline string) *exec.Cmd {
+	c := exec.Command(exe)
+	c.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CmdLine: cmdline, CreationFlags: 0x08000000}
+	return c
 }
 
 // decodeOEM convierte la salida de consola (página de códigos OEM) a UTF-8.

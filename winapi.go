@@ -236,6 +236,24 @@ func windowDPI(hwnd uintptr) int {
 	return systemDPI()
 }
 
+// enableDebugPrivilege activa SeDebugPrivilege para que MiniWall pueda leer la
+// ruta e información de cualquier proceso (incluidos los de otros usuarios y del
+// sistema), dándole visibilidad total de lo que usa la red.
+func enableDebugPrivilege() {
+	var tok windows.Token
+	if err := windows.OpenProcessToken(windows.CurrentProcess(), windows.TOKEN_ADJUST_PRIVILEGES|windows.TOKEN_QUERY, &tok); err != nil {
+		return
+	}
+	defer tok.Close()
+	var luid windows.LUID
+	if windows.LookupPrivilegeValue(nil, utf16("SeDebugPrivilege"), &luid) != nil {
+		return
+	}
+	tp := windows.Tokenprivileges{PrivilegeCount: 1}
+	tp.Privileges[0] = windows.LUIDAndAttributes{Luid: luid, Attributes: windows.SE_PRIVILEGE_ENABLED}
+	windows.AdjustTokenPrivileges(tok, false, &tp, 0, nil, nil)
+}
+
 func newCallback(fn any) uintptr { return syscall.NewCallback(fn) }
 
 func ptr[T any](v *T) uintptr { return uintptr(unsafe.Pointer(v)) }

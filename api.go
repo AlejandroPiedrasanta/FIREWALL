@@ -34,6 +34,7 @@ type server struct {
 type windowCtl interface {
 	Mini(on bool)
 	Hide()
+	Quit()
 }
 
 func startServer(app *App, win windowCtl) (*server, error) {
@@ -192,6 +193,18 @@ func (s *server) api(w http.ResponseWriter, r *http.Request) {
 	case "rules/clear":
 		a.ClearAll()
 		writeJSON(w, "ok")
+	case "install":
+		if err := installApp(a); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, "ok")
+	case "uninstall":
+		go func() {
+			uninstallApp(a)
+			s.window.Quit()
+		}()
+		writeJSON(w, "ok")
 	case "firewall/enable":
 		a.queueFW(func() { a.fwResult(fwEnable()) })
 		writeJSON(w, "ok")
@@ -281,26 +294,30 @@ type appView struct {
 }
 
 type stateView struct {
-	Now      int64      `json:"now"`
-	Secs     [][3]int64 `json:"secs"`
-	Apps     []appView  `json:"apps"`
-	Mode     string     `json:"mode"`
-	Profile  string     `json:"profile"`
-	Profiles []string   `json:"profiles"`
-	Unread   int        `json:"unread"`
-	Latest   *Alert     `json:"latest"`
-	TodayRx  uint64     `json:"todayRx"`
-	TodayTx  uint64     `json:"todayTx"`
-	ETW      bool       `json:"etw"`
-	ETWErr   string     `json:"etwErr"`
-	FWErr    string     `json:"fwErr"`
-	CPU      float64    `json:"cpu"`
-	Mem      float64    `json:"mem"`
-	Theme    string     `json:"theme"`
-	Snoozed  bool       `json:"snoozed"`
-	Conns    int        `json:"conns"`
-	Hosts    int        `json:"hosts"`
-	Version  string     `json:"version"`
+	Now       int64      `json:"now"`
+	Secs      [][3]int64 `json:"secs"`
+	Apps      []appView  `json:"apps"`
+	Mode      string     `json:"mode"`
+	Profile   string     `json:"profile"`
+	Profiles  []string   `json:"profiles"`
+	Unread    int        `json:"unread"`
+	Latest    *Alert     `json:"latest"`
+	TodayRx   uint64     `json:"todayRx"`
+	TodayTx   uint64     `json:"todayTx"`
+	ETW       bool       `json:"etw"`
+	ETWErr    string     `json:"etwErr"`
+	FWErr     string     `json:"fwErr"`
+	CPU       float64    `json:"cpu"`
+	Mem       float64    `json:"mem"`
+	Theme     string     `json:"theme"`
+	Snoozed   bool       `json:"snoozed"`
+	Conns     int        `json:"conns"`
+	Hosts     int        `json:"hosts"`
+	Version   string     `json:"version"`
+	Installed bool       `json:"installed"`
+	Strict    bool       `json:"strict"`
+	Guard     bool       `json:"guard"`
+	Blocked   int        `json:"blocked"`
 }
 
 func (a *App) appViews(today map[string]u2) []appView {
@@ -378,6 +395,8 @@ func (a *App) State() stateView {
 		Now: time.Now().Unix(), Mode: a.cfg.Mode, Profile: a.cfg.Profile, TodayRx: trx, TodayTx: ttx,
 		ETW: a.etw != nil && a.etw.Active, FWErr: a.fwErr, Theme: a.cfg.Theme,
 		Snoozed: a.cfg.Notify.SnoozeUntil > time.Now().Unix(), Conns: len(a.conns), Version: version,
+		Installed: a.cfg.Installed, Strict: a.cfg.StrictBlock, Guard: a.cfg.Guard,
+		Blocked: len(a.cfg.desiredBlocked()),
 	}
 	if a.etw != nil && a.etw.Err != nil {
 		v.ETWErr = a.etw.Err.Error()
@@ -702,22 +721,33 @@ func (a *App) SetBlocked(key string, block bool) string {
 		a.mu.Unlock()
 		return "Esta app no se puede bloquear (no tiene ejecutable propio)."
 	}
-	a.cfg.setBlocked(key, block)
-	if !block {
-		delete(a.cfg.Pending, key)
-	}
-	a.cfgDirty = true
+	a.setDecisionLocked(key, path, !block)
 	a.mu.Unlock()
 	a.queueFW(a.syncRules)
 	return "ok"
 }
 
+// setDecisionLocked registra la decisión del usuario (permitir/bloquear) sobre
+// una app. Debe llamarse con a.mu bloqueado.
+func (a *App) setDecisionLocked(key, path string, allow bool) {
+	delete(a.cfg.Pending, key)
+	a.cfg.setBlocked(key, !allow)
+	if allow {
+		a.cfg.Allowed[key] = path // necesario para el modo estricto
+	} else {
+		delete(a.cfg.Allowed, key)
+	}
+	a.cfgDirty = true
+}
+
 // Answer responde a una solicitud de "preguntar antes de conectar".
 func (a *App) Answer(key string, allow bool) string {
 	a.mu.Lock()
-	delete(a.cfg.Pending, key)
-	a.cfg.setBlocked(key, !allow)
-	a.cfgDirty = true
+	path := ""
+	if r := a.cfg.Apps[key]; r != nil {
+		path = r.Path
+	}
+	a.setDecisionLocked(key, path, allow)
 	a.mu.Unlock()
 	a.queueFW(a.syncRules)
 	return "ok"
@@ -730,19 +760,51 @@ func (a *App) SetMode(mode string) string {
 	a.mu.Lock()
 	prev := a.cfg.Mode
 	a.cfg.Mode = mode
+	if mode == "preguntar" && a.cfg.StrictBlock {
+		// Al entrar en modo estricto, las apps ya conocidas y no bloqueadas se
+		// permiten automáticamente; así solo se pregunta por programas nuevos.
+		a.autoAllowKnownLocked()
+	}
 	a.cfgDirty = true
 	a.mu.Unlock()
 	if prev == mode {
 		return "ok"
 	}
-	a.queueFW(func() {
-		if mode == "bloquear" {
-			a.fwResult(fwBlockAll(true))
-		} else if prev == "bloquear" {
-			a.fwResult(fwBlockAll(false))
-		}
-	})
+	a.applyPosture()
 	return "ok"
+}
+
+// autoAllowKnownLocked marca como permitidas todas las apps conocidas con
+// ejecutable que no estén bloqueadas (para no cortar lo que ya usabas al activar
+// el modo estricto). Debe llamarse con a.mu bloqueado.
+func (a *App) autoAllowKnownLocked() {
+	for k, r := range a.cfg.Apps {
+		if r.Path != "" && !a.cfg.isBlocked(k) {
+			if _, ok := a.cfg.Allowed[k]; !ok {
+				a.cfg.Allowed[k] = r.Path
+			}
+		}
+	}
+}
+
+// applyPosture ajusta la directiva global del Firewall de Windows según el modo
+// y el bloqueo estricto, y reaplica todas las reglas.
+func (a *App) applyPosture() {
+	a.mu.Lock()
+	mode, strict := a.cfg.Mode, a.cfg.StrictBlock
+	a.mu.Unlock()
+	a.queueFW(func() {
+		switch {
+		case mode == "bloquear":
+			fwBaseline(false)
+			a.fwResult(fwBlockAll(true))
+		case mode == "preguntar" && strict:
+			a.fwResult(fwStrictOutbound(true))
+		default:
+			a.fwResult(fwStrictOutbound(false)) // restaura la salida permitida por defecto
+		}
+		a.syncRulesForce(true)
+	})
 }
 
 func (a *App) ProfileAction(action, name, newName string) error {
@@ -814,11 +876,19 @@ func (a *App) UpdateConfig(raw json.RawMessage) error {
 		CloseToTray *bool      `json:"closeToTray"`
 		AskSystem   *bool      `json:"askSystem"`
 		Autostart   *bool      `json:"autostart"`
+		StrictBlock *bool      `json:"strictBlock"`
+		Guard       *bool      `json:"guard"`
 	}
 	if err := json.Unmarshal(raw, &in); err != nil {
 		return err
 	}
 	a.mu.Lock()
+	posture := false
+	defer func() {
+		if posture {
+			a.applyPosture()
+		}
+	}()
 	defer a.mu.Unlock()
 	c := a.cfg
 	if in.Theme != nil {
@@ -852,6 +922,16 @@ func (a *App) UpdateConfig(raw json.RawMessage) error {
 		c.Autostart = on
 		dir := a.dir
 		a.queueFW(func() { a.fwResult(setAutostart(on, dir)) })
+	}
+	if in.Guard != nil {
+		c.Guard = *in.Guard
+	}
+	if in.StrictBlock != nil && *in.StrictBlock != c.StrictBlock {
+		c.StrictBlock = *in.StrictBlock
+		if c.StrictBlock && c.Mode == "preguntar" {
+			a.autoAllowKnownLocked()
+		}
+		posture = true // reajusta la directiva del firewall al salir
 	}
 	c.normalize()
 	a.hist.retention = c.Retention

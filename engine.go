@@ -119,6 +119,7 @@ type App struct {
 	fwErr      string
 	tick       int64
 
+	allowOn  map[string]string // reglas de permiso aplicadas (modo estricto, en memoria)
 	notify   func(title, text, level string)
 	stopOnce sync.Once
 }
@@ -138,6 +139,7 @@ func NewApp(dir string) *App {
 		dnsPending: map[string]bool{},
 		dnsQueue:   make(chan string, 512),
 		fwQueue:    make(chan func(), 256),
+		allowOn:    map[string]string{},
 		notify:     func(string, string, string) {},
 	}
 	a.cfg = defaultConfig()
@@ -178,10 +180,16 @@ func (a *App) Start() {
 	}
 	// Sincroniza las reglas del perfil activo y el modo con el firewall.
 	a.queueFW(func() {
-		a.syncRulesForce(true) // por si alguien borró reglas a mano
 		a.mu.Lock()
-		mode, rdpBlocked, port := a.cfg.Mode, a.cfg.RDPBlocked, readRDP().Port
+		mode, rdpBlocked, strict := a.cfg.Mode, a.cfg.RDPBlocked, a.cfg.StrictBlock
+		port := readRDP().Port
 		a.mu.Unlock()
+		// El bloqueo de salida por defecto (modo estricto) se reaplica en cada
+		// arranque: así sigue protegiendo tras reiniciar aunque alguien lo quitara.
+		if mode == "preguntar" && strict {
+			a.fwResult(fwStrictOutbound(true))
+		}
+		a.syncRulesForce(true) // reaplica reglas por si se borraron a mano
 		if mode == "bloquear" {
 			a.fwResult(fwBlockAll(true))
 		}
@@ -190,6 +198,33 @@ func (a *App) Start() {
 		}
 	})
 	go a.loop()
+	go a.guardLoop()
+}
+
+// guardLoop refuerza la protección: reactiva el Firewall de Windows si alguien
+// lo apaga y reaplica las reglas de MiniWall periódicamente, de modo que los
+// bloqueos no puedan desaparecer sin que vuelvan a ponerse.
+func (a *App) guardLoop() {
+	for range time.Tick(45 * time.Second) {
+		a.mu.Lock()
+		guard, mode, strict := a.cfg.Guard, a.cfg.Mode, a.cfg.StrictBlock
+		a.mu.Unlock()
+		if !guard {
+			continue
+		}
+		a.queueFW(func() {
+			if !fwIsOn() {
+				a.fwResult(fwEnable())
+				a.alert("system", "warn", "Firewall reactivado", "El Firewall de Windows se había desactivado y MiniWall lo ha vuelto a encender.", "")
+			}
+			if mode == "preguntar" && strict {
+				fwStrictOutbound(true)
+			} else if mode == "bloquear" {
+				fwBlockAll(true)
+			}
+			a.syncRulesForce(true)
+		})
+	}
 }
 
 func (a *App) Stop() {
@@ -214,14 +249,21 @@ func (a *App) ClearAll() {
 	for k, v := range a.cfg.Applied {
 		applied[k] = v
 	}
+	allowApplied := map[string]string{}
+	for k, v := range a.allowOn {
+		allowApplied[k] = v
+	}
 	prevMode := a.cfg.Mode
+	prevStrict := a.cfg.StrictBlock
 	port := a.rdp.Port
 	a.cfg.Pending = map[string]int64{}
+	a.cfg.Allowed = map[string]string{}
 	for _, p := range a.cfg.Profiles {
 		p.Blocked = nil
 	}
 	a.cfg.Mode = "monitor"
 	a.cfg.RDPBlocked = false
+	a.cfg.StrictBlock = false
 	a.cfgDirty = true
 	a.mu.Unlock()
 	a.queueFW(func() {
@@ -229,8 +271,15 @@ func (a *App) ClearAll() {
 			fwUnblockApp(k, p)
 			a.markApplied(k, p, false)
 		}
+		for k, p := range allowApplied {
+			fwUnallowApp(k, p)
+			a.markAllowed(k, p, false)
+		}
 		if prevMode == "bloquear" {
 			fwBlockAll(false)
+		}
+		if prevStrict {
+			fwStrictOutbound(false)
 		}
 		fwBlockRDP(false, port)
 		a.fwResult(nil)
@@ -522,8 +571,14 @@ func (a *App) seeApp(pi *procInfo, now time.Time) {
 		if a.cfg.Mode == "preguntar" && (a.cfg.AskSystem || !isSystemPath(pi.Path)) && key != strings.ToLower(selfExe()) {
 			a.cfg.Pending[key] = now.Unix()
 			path := pi.Path
-			a.queueFW(func() { a.fwResult(fwBlockApp(key, path)); a.markApplied(key, path, true) })
-			a.alert("ask", "warn", "¿Permitir conexión?", pi.Name+" quiere conectarse a Internet. Se ha bloqueado hasta que decidas.", key)
+			if a.cfg.StrictBlock {
+				// En modo estricto el bloqueo de salida por defecto ya impide la
+				// conexión; no hace falta regla por app. Solo se pide permiso.
+				a.alert("ask", "warn", "¿Permitir conexión?", pi.Name+" intenta conectarse a Internet y está bloqueado hasta que lo autorices.", key)
+			} else {
+				a.queueFW(func() { a.fwResult(fwBlockApp(key, path)); a.markApplied(key, path, true) })
+				a.alert("ask", "warn", "¿Permitir conexión?", pi.Name+" quiere conectarse a Internet. Se ha bloqueado hasta que decidas.", key)
+			}
 			return
 		}
 		a.alert("newapp", "info", "Nueva app con acceso a la red", pi.Name+" se ha conectado por primera vez.\n"+pi.Path, key)
@@ -788,6 +843,7 @@ func (a *App) syncRules() { a.syncRulesForce(false) }
 
 func (a *App) syncRulesForce(force bool) {
 	a.mu.Lock()
+	strict := a.cfg.StrictBlock && a.cfg.Mode == "preguntar"
 	want := a.cfg.desiredBlocked()
 	applied := map[string]string{}
 	for k, v := range a.cfg.Applied {
@@ -799,8 +855,31 @@ func (a *App) syncRulesForce(force bool) {
 			paths[k] = r.Path
 		}
 	}
+	// Reglas de permiso: solo en modo estricto, para apps permitidas que no estén bloqueadas.
+	wantAllow := map[string]string{}
+	if strict {
+		for k := range a.cfg.Allowed {
+			if a.cfg.isBlocked(k) {
+				continue
+			}
+			p := a.cfg.Allowed[k]
+			if p == "" {
+				if r := a.cfg.Apps[k]; r != nil {
+					p = r.Path
+				}
+			}
+			if p != "" {
+				wantAllow[k] = p
+			}
+		}
+	}
+	allowApplied := map[string]string{}
+	for k, v := range a.allowOn {
+		allowApplied[k] = v
+	}
 	a.mu.Unlock()
 
+	// --- reglas de bloqueo (permanentes; sobreviven a reinicios) ---
 	for k, p := range applied {
 		if !want[k] {
 			fwUnblockApp(k, p)
@@ -818,6 +897,36 @@ func (a *App) syncRulesForce(force bool) {
 			}
 			a.markApplied(k, p, true)
 		}
+	}
+
+	// --- reglas de permiso (modo estricto) ---
+	for k, p := range allowApplied {
+		if _, ok := wantAllow[k]; !ok {
+			fwUnallowApp(k, p)
+			a.markAllowed(k, p, false)
+		}
+	}
+	for k, p := range wantAllow {
+		if _, ok := allowApplied[k]; ok && !force {
+			continue
+		}
+		if err := fwAllowApp(k, p); err != nil {
+			a.fwResult(err)
+			continue
+		}
+		a.markAllowed(k, p, true)
+	}
+}
+
+// markAllowed registra qué reglas de permiso están aplicadas (solo en memoria;
+// se reconstruyen al iniciar). Las DECISIONES de permiso se guardan en cfg.Allowed.
+func (a *App) markAllowed(key, path string, on bool) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if on {
+		a.allowOn[key] = path
+	} else {
+		delete(a.allowOn, key)
 	}
 }
 

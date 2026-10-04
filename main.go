@@ -4,6 +4,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
 	"os"
@@ -28,8 +29,25 @@ func init() { runtime.LockOSThread() }
 func main() {
 	minimized := false
 	for _, a := range os.Args[1:] {
-		if a == "--minimized" || a == "/minimized" {
+		switch a {
+		case "--minimized", "/minimized":
 			minimized = true
+		case "--uninstall", "/uninstall":
+			if !windows.GetCurrentProcessToken().IsElevated() {
+				relaunchElevated()
+				return
+			}
+			uninstallCLI()
+			return
+		case "--install", "/install":
+			if !windows.GetCurrentProcessToken().IsElevated() {
+				relaunchElevated()
+				return
+			}
+			if err := installApp(nil); err == nil {
+				elevatedRelaunch(installedExe(), "")
+			}
+			return
 		}
 	}
 
@@ -52,6 +70,8 @@ func main() {
 			return
 		}
 	}
+	// Máximo poder de inspección: permite leer la ruta de cualquier proceso.
+	enableDebugPrivilege()
 
 	dir := dataDir()
 	if f, err := os.OpenFile(filepath.Join(dir, "miniwall.log"), os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600); err == nil {
@@ -113,6 +133,7 @@ func main() {
 		mw.quitting = true
 		wv.Terminate()
 	}
+	win.quitFn = quit
 	mw.onEndSession = func() { app.Stop() }
 	setupTrayMenu(t, app, mw, quit)
 	go trayTipLoop(app, t)
@@ -129,7 +150,10 @@ func main() {
 }
 
 // lateWindow permite crear el servidor antes que la ventana.
-type lateWindow struct{ w *mainWindow }
+type lateWindow struct {
+	w      *mainWindow
+	quitFn func()
+}
 
 func (l *lateWindow) Mini(on bool) {
 	if l.w != nil {
@@ -143,12 +167,20 @@ func (l *lateWindow) Hide() {
 	}
 }
 
+func (l *lateWindow) Quit() {
+	if l.quitFn != nil {
+		l.quitFn()
+	}
+}
+
 const (
 	cmdOpen = iota + 1
 	cmdMini
 	cmdMonitor
 	cmdAsk
 	cmdBlockAll
+	cmdStrict
+	cmdInstall
 	cmdSnooze
 	cmdQuit
 	cmdProfileBase = 100
@@ -166,6 +198,8 @@ func setupTrayMenu(t *tray, app *App, mw *mainWindow, quit func()) {
 		mode := app.cfg.Mode
 		snoozed := app.cfg.Notify.SnoozeUntil > time.Now().Unix()
 		cur := app.cfg.Profile
+		strict := app.cfg.StrictBlock
+		installed := app.cfg.Installed
 		var profiles []string
 		for _, p := range app.cfg.Profiles {
 			profiles = append(profiles, p.Name)
@@ -178,13 +212,17 @@ func setupTrayMenu(t *tray, app *App, mw *mainWindow, quit func()) {
 			{ID: cmdMonitor, Label: "Modo: Monitorizar", Checked: mode == "monitor"},
 			{ID: cmdAsk, Label: "Modo: Preguntar antes de conectar", Checked: mode == "preguntar"},
 			{ID: cmdBlockAll, Label: "Modo: Bloquear todo", Checked: mode == "bloquear"},
+			{ID: cmdStrict, Label: "Bloqueo estricto (pide permiso siempre)", Checked: strict},
 			{Sep: true},
 		}
 		for i, p := range profiles {
 			items = append(items, trayMenuItem{ID: uintptr(cmdProfileBase + i), Label: "Perfil: " + p, Checked: p == cur})
 		}
+		items = append(items, trayMenuItem{Sep: true})
+		if !installed {
+			items = append(items, trayMenuItem{ID: cmdInstall, Label: "Instalar MiniWall en el equipo"})
+		}
 		items = append(items,
-			trayMenuItem{Sep: true},
 			trayMenuItem{ID: cmdSnooze, Label: "Silenciar alertas 1 hora", Checked: snoozed},
 			trayMenuItem{ID: cmdQuit, Label: "Salir"},
 		)
@@ -203,6 +241,21 @@ func setupTrayMenu(t *tray, app *App, mw *mainWindow, quit func()) {
 			app.SetMode("preguntar")
 		case id == cmdBlockAll:
 			app.SetMode("bloquear")
+		case id == cmdStrict:
+			app.mu.Lock()
+			ns := !app.cfg.StrictBlock
+			app.mu.Unlock()
+			b, _ := json.Marshal(map[string]any{"strictBlock": ns})
+			app.UpdateConfig(b)
+			if ns {
+				t.Notify("Bloqueo estricto activado", "Los programas nuevos quedan bloqueados hasta que los autorices, incluso tras reiniciar.", "info")
+			}
+		case id == cmdInstall:
+			if err := installApp(app); err != nil {
+				t.Notify("No se pudo instalar", err.Error(), "danger")
+			} else {
+				t.Notify("MiniWall instalado", "Ya está instalado y arrancará con Windows.", "info")
+			}
 		case id == cmdSnooze:
 			app.mu.Lock()
 			if app.cfg.Notify.SnoozeUntil > time.Now().Unix() {
