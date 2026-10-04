@@ -91,6 +91,21 @@ segundo).
   del sistema disponibles (depuración, copia, etc.) para tener visibilidad total
   de los procesos.
 
+### Instalador más potente y "Preguntar" por defecto
+
+- El modo **Preguntar antes de conectar** viene **activado de fábrica**: MiniWall
+  actúa como filtro principal y, ante cualquier programa nuevo que intente usar
+  Internet, lo identifica (nombre, ruta, firma, riesgo) y muestra el **pop-up**
+  para permitir o bloquear. La decisión se guarda como regla del Firewall de
+  Windows (persiste tras reiniciar).
+- El **bloqueo es exacto por programa** (por ruta del ejecutable): bloquear una
+  app nunca afecta a las conexiones de otra.
+- El **instalador** comprueba e instala el runtime **WebView2** si falta (para que
+  la interfaz se vea siempre), además de crear accesos directos, registrar la
+  desinstalación y configurar el arranque con Windows.
+- Para un bloqueo **antes de conectar** al 100 %, activa además el **Bloqueo
+  estricto** (deniega la salida por defecto y permite solo lo que apruebes).
+
 **No incluido** (a propósito, para mantenerlo minimalista y sin exponer nada a
 la red): la monitorización remota de servidores y la consola de administración
 multi‑equipo. La interfaz solo escucha en `127.0.0.1` y exige un token aleatorio

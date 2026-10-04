@@ -971,7 +971,7 @@ async function loadConfig() {
   const inst = (S.last && S.last.installed);
   $('#installCard').innerHTML = inst
     ? `<div class="stat"><div class="ic ok"><svg><use href="#i-shield"/></svg></div><div class="grow"><div class="t">MiniWall está instalado en el equipo</div><div class="d">Se ejecuta desde Archivos de programa y arranca con Windows. Puedes desinstalarlo cuando quieras.</div><div style="margin-top:10px"><button class="btn sm danger" data-act="uninstall">Desinstalar MiniWall</button></div></div></div>`
-    : `<div class="stat"><div class="ic warn"><svg><use href="#i-info"/></svg></div><div class="grow"><div class="t">Instalar MiniWall en el equipo</div><div class="d">Copia el programa a Archivos de programa, crea accesos directos y lo configura para arrancar con Windows y protegerte siempre, incluso tras reiniciar.</div><div style="margin-top:10px"><button class="btn sm primary" data-act="install">Instalar ahora</button></div></div></div>`;
+    : `<div class="stat"><div class="ic warn"><svg><use href="#i-info"/></svg></div><div class="grow"><div class="t">Instalar MiniWall en el equipo</div><div class="d">Copia el programa a Archivos de programa, crea accesos directos, instala el componente necesario (WebView2) si falta y lo configura para arrancar con Windows y protegerte siempre, incluso tras reiniciar.</div><div style="margin-top:10px"><button class="btn sm primary" data-act="install">Instalar ahora</button></div></div></div>`;
 }
 
 function renderInstallBanner() {

@@ -90,17 +90,26 @@ func main() {
 	}
 
 	s := float64(systemDPI()) / 96
-	wv := webview2.NewWithOptions(webview2.WebViewOptions{
-		DataPath:  filepath.Join(dir, "WebView2"),
-		AutoFocus: true,
-		WindowOptions: webview2.WindowOptions{
-			Title:  appTitle,
-			Width:  uint(1240 * s),
-			Height: uint(800 * s),
-			IconId: 1,
-			Center: true,
-		},
-	})
+	newWV := func() webview2.WebView {
+		return webview2.NewWithOptions(webview2.WebViewOptions{
+			DataPath:  filepath.Join(dir, "WebView2"),
+			AutoFocus: true,
+			WindowOptions: webview2.WindowOptions{
+				Title:  appTitle,
+				Width:  uint(1240 * s),
+				Height: uint(800 * s),
+				IconId: 1,
+				Center: true,
+			},
+		})
+	}
+	wv := newWV()
+	if wv == nil && !hasWebView2() {
+		// Falta el runtime WebView2: se instala y se reintenta.
+		if ensureWebView2() == nil {
+			wv = newWV()
+		}
+	}
 	if wv == nil {
 		// Sin WebView2: abrir la interfaz en el navegador y seguir en la bandeja.
 		if hw := call(procFindWindowW, uintptr(unsafe.Pointer(utf16("webview"))), uintptr(unsafe.Pointer(utf16(appTitle)))); hw != 0 {

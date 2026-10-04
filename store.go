@@ -84,8 +84,10 @@ type Config struct {
 
 func defaultConfig() *Config {
 	return &Config{
-		Theme:       "oscuro",
-		Mode:        "monitor",
+		Theme: "oscuro",
+		// Por defecto se pregunta antes de dejar conectar cualquier programa nuevo:
+		// MiniWall es el filtro principal de acceso a Internet.
+		Mode:        "preguntar",
 		Profile:     "Normal",
 		Profiles:    []*Profile{{Name: "Normal"}, {Name: "Wi-Fi pública"}, {Name: "Juegos"}},
 		Notify:      NotifyCfg{Balloons: true, NewApp: true, AppChanged: true, Devices: true, RDP: true, Privacy: true, EvilTwin: true, Limit: true, Adobe: true, Threat: true},

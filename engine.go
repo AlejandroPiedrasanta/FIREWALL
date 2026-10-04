@@ -483,14 +483,16 @@ func (a *App) liveApp(pi *procInfo, now time.Time) *liveApp {
 }
 
 // checkAdobe avisa (una vez por app) cuando un programa de Adobe se conecta.
+// Salta siempre, incluso durante el arranque, porque el usuario quiere estar
+// avisado de cualquier conexión de Adobe.
 func (a *App) checkAdobe(now time.Time) {
 	for k, la := range a.apps {
-		if !la.Adobe || la.Conns == 0 || a.adobeSeen[k] || a.firstRun {
+		if !la.Adobe || la.Conns == 0 || a.adobeSeen[k] {
 			continue
 		}
 		a.adobeSeen[k] = true
-		a.alert("adobe", "info", "Adobe se está conectando",
-			la.Name+" (Adobe) ha abierto una conexión a Internet.\n"+la.Path, k)
+		a.alert("adobe", "warn", "⚠ Conexión de Adobe",
+			la.Name+" (Adobe) está conectándose a Internet.\n"+la.Path, k)
 	}
 }
 

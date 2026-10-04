@@ -4,9 +4,12 @@ package main
 
 import (
 	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/registry"
@@ -47,6 +50,72 @@ func copyFile(src, dst string) error {
 	return os.WriteFile(dst, data, 0o755)
 }
 
+// webView2GUID identifica el runtime Evergreen de Microsoft Edge WebView2.
+const webView2GUID = `{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}`
+
+// hasWebView2 indica si el runtime de WebView2 (que dibuja la interfaz) está
+// instalado en el equipo.
+func hasWebView2() bool {
+	keys := []struct {
+		root registry.Key
+		path string
+	}{
+		{registry.LOCAL_MACHINE, `SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\` + webView2GUID},
+		{registry.LOCAL_MACHINE, `SOFTWARE\Microsoft\EdgeUpdate\Clients\` + webView2GUID},
+		{registry.CURRENT_USER, `SOFTWARE\Microsoft\EdgeUpdate\Clients\` + webView2GUID},
+	}
+	for _, k := range keys {
+		rk, err := registry.OpenKey(k.root, k.path, registry.QUERY_VALUE)
+		if err != nil {
+			continue
+		}
+		pv, _, _ := rk.GetStringValue("pv")
+		rk.Close()
+		if pv != "" && pv != "0.0.0.0" {
+			return true
+		}
+	}
+	return false
+}
+
+// ensureWebView2 descarga e instala el runtime de WebView2 si falta. Es lo que
+// permite que la interfaz se vea sin depender de que el equipo ya lo tenga.
+func ensureWebView2() error {
+	if hasWebView2() {
+		return nil
+	}
+	tmp := filepath.Join(os.TempDir(), "MicrosoftEdgeWebview2Setup.exe")
+	if err := download("https://go.microsoft.com/fwlink/p/?LinkId=2124703", tmp); err != nil {
+		return fmt.Errorf("no se pudo descargar WebView2: %w", err)
+	}
+	defer os.Remove(tmp)
+	// Instalación silenciosa del runtime.
+	c := cmdHidden(tmp, fmt.Sprintf(`"%s" /silent /install`, tmp))
+	if err := c.Run(); err != nil {
+		return fmt.Errorf("no se pudo instalar WebView2: %w", err)
+	}
+	return nil
+}
+
+func download(url, dst string) error {
+	client := &http.Client{Timeout: 5 * time.Minute}
+	resp, err := client.Get(url)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		return fmt.Errorf("HTTP %d", resp.StatusCode)
+	}
+	f, err := os.Create(dst)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	_, err = io.Copy(f, resp.Body)
+	return err
+}
+
 // installApp copia el ejecutable y deja MiniWall instalado y en marcha.
 func installApp(a *App) error {
 	exe, err := os.Executable()
@@ -71,9 +140,15 @@ func installApp(a *App) error {
 	}
 
 	registerUninstall(dst)
-	if err := setAutostartExe(true, dst, a.dir); err != nil {
+	dataDir := os.TempDir()
+	if a != nil && a.dir != "" {
+		dataDir = a.dir
+	}
+	if err := setAutostartExe(true, dst, dataDir); err != nil {
 		return fmt.Errorf("no se pudo configurar el arranque con Windows: %w", err)
 	}
+	// Instala el runtime WebView2 si falta (para que la interfaz se vea siempre).
+	_ = ensureWebView2()
 
 	if a != nil {
 		a.mu.Lock()
