@@ -37,8 +37,23 @@ func ruleName(key, path, dir string) string {
 }
 
 func netsh(args string) error {
-	_, err := runHidden("netsh " + args)
-	return err
+	out, err := runHidden("netsh " + args)
+	if err == nil {
+		return nil
+	}
+	// Reintento único por si fue un fallo transitorio del servicio de firewall.
+	out2, err2 := runHidden("netsh " + args)
+	if err2 == nil {
+		return nil
+	}
+	_ = out
+	return fmt.Errorf("%s", strings.TrimSpace(out2))
+}
+
+// netshDelete borra una regla ignorando el caso "no existe" (no es un error real).
+func netshDelete(name string) {
+	out, _ := runHidden(fmt.Sprintf(`netsh advfirewall firewall delete rule name="%s"`, name))
+	_ = out // borrar algo inexistente no es un error que debamos propagar
 }
 
 func validProgram(path string) bool {
@@ -56,7 +71,7 @@ func fwBlockApp(key, path string) error {
 	}
 	for _, dir := range []string{"out", "in"} {
 		name := ruleName(key, path, dir)
-		_ = netsh(fmt.Sprintf(`advfirewall firewall delete rule name="%s"`, name))
+		netshDelete(name)
 		if err := netsh(fmt.Sprintf(`advfirewall firewall add rule name="%s" dir=%s action=block program="%s" enable=yes profile=any`, name, dir, path)); err != nil {
 			return err
 		}
@@ -65,14 +80,10 @@ func fwBlockApp(key, path string) error {
 }
 
 func fwUnblockApp(key, path string) error {
-	var last error
 	for _, dir := range []string{"out", "in"} {
-		name := ruleName(key, path, dir)
-		if err := netsh(fmt.Sprintf(`advfirewall firewall delete rule name="%s"`, name)); err != nil {
-			last = err
-		}
+		netshDelete(ruleName(key, path, dir))
 	}
-	return last
+	return nil
 }
 
 // allowRuleName identifica una regla de PERMISO (modo estricto).
@@ -91,7 +102,7 @@ func fwAllowApp(key, path string) error {
 	}
 	for _, dir := range []string{"out", "in"} {
 		name := allowRuleName(key, path, dir)
-		_ = netsh(fmt.Sprintf(`advfirewall firewall delete rule name="%s"`, name))
+		netshDelete(name)
 		if err := netsh(fmt.Sprintf(`advfirewall firewall add rule name="%s" dir=%s action=allow program="%s" enable=yes profile=any`, name, dir, path)); err != nil {
 			return err
 		}
@@ -100,14 +111,10 @@ func fwAllowApp(key, path string) error {
 }
 
 func fwUnallowApp(key, path string) error {
-	var last error
 	for _, dir := range []string{"out", "in"} {
-		name := allowRuleName(key, path, dir)
-		if err := netsh(fmt.Sprintf(`advfirewall firewall delete rule name="%s"`, name)); err != nil {
-			last = err
-		}
+		netshDelete(allowRuleName(key, path, dir))
 	}
-	return last
+	return nil
 }
 
 // fwBlockAll cambia la directiva predeterminada de todos los perfiles.
@@ -150,7 +157,7 @@ func fwBaseline(on bool) error {
 	}
 	for _, r := range rules {
 		full := baselineTag + r.name
-		_ = netsh(fmt.Sprintf(`advfirewall firewall delete rule name="%s"`, full))
+		netshDelete(full)
 		if on {
 			if err := netsh(fmt.Sprintf(`advfirewall firewall add rule name="%s" %s enable=yes profile=any`, full, r.args)); err != nil {
 				return err
@@ -159,7 +166,7 @@ func fwBaseline(on bool) error {
 	}
 	// MiniWall siempre puede conectar (resolución inversa de nombres).
 	self := baselineTag + "MiniWall"
-	_ = netsh(fmt.Sprintf(`advfirewall firewall delete rule name="%s"`, self))
+	netshDelete(self)
 	if on {
 		if exe, err := os.Executable(); err == nil {
 			_ = netsh(fmt.Sprintf(`advfirewall firewall add rule name="%s" dir=out action=allow program="%s" enable=yes profile=any`, self, exe))
@@ -184,7 +191,7 @@ func fwIsOn() bool {
 const rdpRule = rulePrefix + "Bloquear Escritorio remoto (entrada)"
 
 func fwBlockRDP(on bool, port int) error {
-	_ = netsh(fmt.Sprintf(`advfirewall firewall delete rule name="%s"`, rdpRule))
+	netshDelete(rdpRule)
 	if !on {
 		return nil
 	}

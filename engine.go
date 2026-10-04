@@ -248,7 +248,7 @@ func (a *App) guardLoop() {
 			} else if mode == "bloquear" {
 				fwBlockAll(true)
 			}
-			a.syncRulesForce(true)
+			a.syncRules() // sin forzar: solo aplica lo que falte (evita recrear todo)
 		})
 	}
 }
@@ -700,12 +700,15 @@ func (a *App) seeApp(pi *procInfo, now time.Time) {
 				a.queueFW(a.syncRules)
 			}
 		case !a.cfg.isAllowed(key) && !a.cfg.isBlocked(key):
-			// App de usuario sin decisión: queda bloqueada por defecto y se pregunta.
+			// App de usuario sin decisión: queda bloqueada hasta que decidas.
 			if _, ok := a.cfg.Pending[key]; !ok {
 				a.cfg.Pending[key] = now.Unix()
 				a.cfgDirty = true
-				lvl := "warn"
-				a.alert("ask", lvl, "¿Permitir conexión?", pi.Name+" quiere conectarse a Internet. Está bloqueado hasta que decidas.", key)
+				// Además de la denegación por defecto, se crea una regla de bloqueo
+				// por app al instante: así queda bloqueada aunque la directiva global
+				// no se pudiese aplicar (doble garantía).
+				a.queueFW(a.syncRules)
+				a.alert("ask", "warn", "¿Permitir conexión?", pi.Name+" quiere conectarse a Internet. Está bloqueado hasta que decidas.", key)
 				go a.onAsk() // trae la ventana al frente para mostrar el pop-up
 			}
 		}
@@ -1027,6 +1030,13 @@ func (a *App) syncRulesForce(force bool) {
 	}
 	a.mu.Unlock()
 
+	var firstErr error
+	note := func(err error) {
+		if err != nil && firstErr == nil {
+			firstErr = err
+		}
+	}
+
 	// --- reglas de bloqueo (permanentes; sobreviven a reinicios) ---
 	for k, p := range applied {
 		if !want[k] {
@@ -1040,14 +1050,14 @@ func (a *App) syncRulesForce(force bool) {
 		}
 		if p := paths[k]; p != "" {
 			if err := fwBlockApp(k, p); err != nil {
-				a.fwResult(err)
+				note(err)
 				continue
 			}
 			a.markApplied(k, p, true)
 		}
 	}
 
-	// --- reglas de permiso (modo estricto) ---
+	// --- reglas de permiso (modo "Preguntar") ---
 	for k, p := range allowApplied {
 		if _, ok := wantAllow[k]; !ok {
 			fwUnallowApp(k, p)
@@ -1059,11 +1069,13 @@ func (a *App) syncRulesForce(force bool) {
 			continue
 		}
 		if err := fwAllowApp(k, p); err != nil {
-			a.fwResult(err)
+			note(err)
 			continue
 		}
 		a.markAllowed(k, p, true)
 	}
+	// Refleja el resultado global: limpia el aviso de error si todo fue bien.
+	a.fwResult(firstErr)
 }
 
 // markAllowed registra qué reglas de permiso están aplicadas (solo en memoria;

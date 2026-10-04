@@ -116,25 +116,38 @@ func download(url, dst string) error {
 	return err
 }
 
-// installApp copia el ejecutable y deja MiniWall instalado y en marcha.
+// startMenuDir es la carpeta propia de MiniWall en el menú Inicio.
+func startMenuDir() string { return filepath.Join(programsDir(), "MiniWall") }
+
+// installApp realiza una instalación profesional: crea la estructura de carpetas
+// en Archivos de programa, copia el ejecutable, crea accesos directos (menú
+// Inicio con su carpeta, escritorio y desinstalador), registra la app en
+// «Agregar o quitar programas», instala WebView2 si falta y la configura para
+// arrancar con Windows.
 func installApp(a *App) error {
 	exe, err := os.Executable()
 	if err != nil {
 		return err
 	}
 	dir := installDir()
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return fmt.Errorf("no se pudo crear %s: %w", dir, err)
+	// Estructura de carpetas del programa.
+	for _, sub := range []string{"", "data", "logs", "resources"} {
+		if err := os.MkdirAll(filepath.Join(dir, sub), 0o755); err != nil {
+			return fmt.Errorf("no se pudo crear la carpeta %s: %w", filepath.Join(dir, sub), err)
+		}
 	}
 	dst := installedExe()
 	if !strings.EqualFold(exe, dst) {
 		if err := copyFile(exe, dst); err != nil {
-			return fmt.Errorf("no se pudo copiar el programa: %w", err)
+			return fmt.Errorf("no se pudo copiar el programa a Archivos de programa: %w", err)
 		}
 	}
 
-	// Accesos directos en el menú Inicio y el escritorio.
-	createShortcut(filepath.Join(programsDir(), "MiniWall.lnk"), dst, "")
+	// Accesos directos: carpeta propia en el menú Inicio (app + desinstalar),
+	// y acceso en el escritorio.
+	_ = os.MkdirAll(startMenuDir(), 0o755)
+	createShortcut(filepath.Join(startMenuDir(), "MiniWall.lnk"), dst, "")
+	createShortcut(filepath.Join(startMenuDir(), "Desinstalar MiniWall.lnk"), dst, "--uninstall")
 	if d := desktopDir(); d != "" {
 		createShortcut(filepath.Join(d, "MiniWall.lnk"), dst, "")
 	}
@@ -166,12 +179,10 @@ func installApp(a *App) error {
 func uninstallApp(a *App) {
 	if a != nil {
 		a.ClearAll()
-		if a.cfg.StrictBlock {
-			fwStrictOutbound(false)
-		}
 	}
 	setAutostart(false, "")
-	os.Remove(filepath.Join(programsDir(), "MiniWall.lnk"))
+	os.RemoveAll(startMenuDir())
+	os.Remove(filepath.Join(programsDir(), "MiniWall.lnk")) // por si existía de versiones antiguas
 	if d := desktopDir(); d != "" {
 		os.Remove(filepath.Join(d, "MiniWall.lnk"))
 	}
@@ -220,6 +231,8 @@ func registerUninstall(exe string) {
 	k.SetStringValue("DisplayIcon", exe)
 	k.SetStringValue("InstallLocation", filepath.Dir(exe))
 	k.SetStringValue("UninstallString", fmt.Sprintf(`"%s" --uninstall`, exe))
+	k.SetStringValue("QuietUninstallString", fmt.Sprintf(`"%s" --uninstall`, exe))
+	k.SetStringValue("URLInfoAbout", "https://github.com/AlejandroPiedrasanta/FIREWALL")
 	k.SetDWordValue("NoModify", 1)
 	k.SetDWordValue("NoRepair", 1)
 	k.SetDWordValue("EstimatedSize", 10240)
@@ -307,12 +320,13 @@ func uninstallCLI() {
 	if cfg.Mode == "bloquear" {
 		fwBlockAll(false)
 	}
-	if cfg.StrictBlock {
-		fwStrictOutbound(false)
+	if cfg.StrictBlock || cfg.Mode == "preguntar" {
+		fwStrictOutbound(false) // restaura la salida permitida por defecto
 	}
 	fwBlockRDP(false, readRDP().Port)
 
 	setAutostart(false, "")
+	os.RemoveAll(startMenuDir())
 	os.Remove(filepath.Join(programsDir(), "MiniWall.lnk"))
 	if d := desktopDir(); d != "" {
 		os.Remove(filepath.Join(d, "MiniWall.lnk"))

@@ -100,9 +100,24 @@ segundo).
   Windows (persiste tras reiniciar).
 - El **bloqueo es exacto por programa** (por ruta del ejecutable): bloquear una
   app nunca afecta a las conexiones de otra.
-- El **instalador** comprueba e instala el runtime **WebView2** si falta (para que
-  la interfaz se vea siempre), además de crear accesos directos, registrar la
-  desinstalación y configurar el arranque con Windows.
+- **Instalación profesional**: crea la estructura de carpetas en
+  `C:\Program Files\MiniWall` (`data`, `logs`, `resources`), copia el ejecutable,
+  crea una carpeta en el menú Inicio (con acceso directo y **desinstalador**), un
+  acceso en el escritorio, comprueba e instala el runtime **WebView2** si falta,
+  registra la app en *Agregar o quitar programas* y la configura para arrancar con
+  Windows. Se desinstala por completo desde ahí o desde Ajustes.
+- **Fiabilidad**: borrar una regla inexistente ya no se cuenta como error (eso
+  causaba el falso «Error del firewall»), los comandos del firewall se reintentan
+  una vez y el estado de error se limpia cuando todo va bien. Cada app pendiente
+  de decisión recibe, además de la denegación por defecto, una regla de bloqueo
+  por app, de modo que queda bloqueada aunque la directiva global no se pudiese
+  aplicar.
+
+> **Inspirado en [simplewall](https://github.com/henrypp/simplewall)**, que usa la
+> plataforma de filtrado de Windows (WFP) con un modelo *denegar por defecto*.
+> MiniWall aplica el mismo modelo (denegar por defecto + permitir lo aprobado)
+> usando el Firewall de Windows. Un filtrado a nivel de WFP, previo a la conexión,
+> es el siguiente paso posible.
 - Para un bloqueo **antes de conectar** al 100 %, activa además el **Bloqueo
   estricto** (deniega la salida por defecto y permite solo lo que apruebes).
 
