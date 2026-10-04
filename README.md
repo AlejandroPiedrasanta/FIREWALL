@@ -49,6 +49,29 @@ Extra:
   abiertos a la red** por app y velocidad actual en el icono de la bandeja.
 - Interfaz **"liquid glass"** (cristal esmerilado translúcido) con 5 temas.
 
+### Detección de amenazas y control maestro
+
+Pestaña **Amenazas**: análisis heurístico en tiempo real de cada programa con
+actividad de red. No es un antivirus con firmas, pero marca en **rojo** las
+señales que suelen delatar malware o programas no deseados:
+
+- Ejecutable **sin firma digital** válida (Authenticode).
+- Ubicado en carpetas **temporales o de descargas**.
+- Que **se hace pasar por un proceso de Windows** (p. ej. `svchost.exe` fuera de
+  System32) — señal clásica de malware.
+- **Servicios ocultos / puertas traseras**: programas que **escuchan** conexiones
+  entrantes accesibles desde la red (`0.0.0.0`), e indicios de **Tor** (.onion).
+- Conexiones a **muchos países** distintos (posible baliza / botnet).
+
+El **control maestro** te deja marcar con un clic qué programas **no deberían
+tener acceso**: se bloquean en el Firewall de Windows y quedan resaltados en rojo
+en toda la app. Botón **"Bloquear todo lo peligroso"** para cortar de golpe lo
+marcado como peligro.
+
+El gráfico y las conexiones se actualizan en **tiempo real preciso** (la tasa se
+normaliza por el tiempo transcurrido real y las conexiones se refrescan cada
+segundo).
+
 **No incluido** (a propósito, para mantenerlo minimalista y sin exponer nada a
 la red): la monitorización remota de servidores y la consola de administración
 multi‑equipo. La interfaz solo escucha en `127.0.0.1` y exige un token aleatorio

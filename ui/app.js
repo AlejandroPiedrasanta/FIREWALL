@@ -324,12 +324,13 @@ const refreshers = {
   uso: () => loadUsage(),
   mapa: () => loadConns(),
   red: () => loadLan(),
+  amenazas: () => loadThreats(),
   seguridad: () => loadSecurity(),
   sistema: () => loadSystem(),
   alertas: () => loadAlerts(),
   ajustes: () => loadConfig(),
 };
-const intervals = { mapa: 3000, red: 5000, seguridad: 3000, sistema: 1000, uso: 30000, grafico: 60000 };
+const intervals = { mapa: 3000, red: 5000, amenazas: 3000, seguridad: 3000, sistema: 1000, uso: 30000, grafico: 60000 };
 let tabTimer = null;
 function refreshTab(now) {
   clearTimeout(tabTimer);
@@ -367,6 +368,8 @@ function onState(s) {
   $('#sbProfile').textContent = s.profile;
   $$('#modeSeg button').forEach(b => { b.classList.toggle('on', b.dataset.mode === s.mode); b.classList.toggle('block', b.dataset.mode === 'bloquear'); });
   const warns = [];
+  if (s.danger) warns.push(`<span class="pill danger" title="Programas peligrosos detectados">⚠ ${s.danger} peligro${s.danger > 1 ? 's' : ''}</span>`);
+  else if (s.threats) warns.push(`<span class="pill warn">${s.threats} sospechoso${s.threats > 1 ? 's' : ''}</span>`);
   if (s.strict) warns.push(`<span class="pill ok" title="Bloqueo de salida por defecto: cada programa nuevo pide permiso. Activo aunque reinicies.">🔒 Bloqueo estricto</span>`);
   if (s.guard) warns.push(`<span class="pill" title="Reactiva el firewall y reaplica las reglas automáticamente">🛡️ Guardián</span>`);
   if (s.blocked) warns.push(`<span class="pill">${s.blocked} app${s.blocked > 1 ? 's' : ''} bloqueada${s.blocked > 1 ? 's' : ''}</span>`);
@@ -379,6 +382,12 @@ function onState(s) {
   const badge = $('#badge');
   badge.textContent = s.unread > 99 ? '99+' : s.unread;
   badge.classList.toggle('hidden', !s.unread);
+  const tb = $('#threatBadge');
+  if (tb) {
+    tb.textContent = s.threats > 99 ? '99+' : s.threats;
+    tb.classList.toggle('hidden', !s.threats);
+    tb.classList.toggle('danger-badge', s.danger > 0);
+  }
 
   // datos del gráfico en vivo (últimos 5 minutos) y minigráfico
   const live = secs.slice(-300).map(x => ({ t: x[0], a: x[1], b: x[2] }));
@@ -556,9 +565,9 @@ function renderFirewall() {
   if (q) list = list.filter(a => a.name.toLowerCase().includes(q) || (a.path || '').toLowerCase().includes(q));
   const body = $('#fwBody');
   if (!list.length) { body.innerHTML = `<tr><td colspan="7" class="empty">${q ? 'Ninguna app coincide con la búsqueda.' : 'Todavía no se ha detectado ninguna app con actividad de red.'}</td></tr>`; return; }
-  keyedRender(body, list.slice(0, 250), a => a.key, a => `<tr>
+  keyedRender(body, list.slice(0, 250), a => a.key, a => `<tr class="${a.blocked ? 'row-blocked' : a.risk >= 2 ? 'row-danger' : a.risk === 1 ? 'row-warn' : ''}">
     <td>${appIcon(a.path, a.name)}</td>
-    <td style="max-width:420px"><div class="row" style="gap:6px"><b class="ellipsis">${esc(a.name)}</b>${a.system ? '<span class="tag">sistema</span>' : ''}${a.active ? '<span class="dot" title="Activa ahora"></span>' : ''}</div><div class="small faint ellipsis" title="${esc(a.path)}">${esc(a.path || 'Sin ejecutable propio')}</div></td>
+    <td style="max-width:420px"><div class="row" style="gap:6px"><b class="ellipsis">${esc(a.name)}</b>${riskBadge(a)}${a.system ? '<span class="tag">sistema</span>' : ''}${a.active ? '<span class="dot" title="Activa ahora"></span>' : ''}</div><div class="small faint ellipsis" title="${esc(a.path)}">${esc(a.path || 'Sin ejecutable propio')}</div></td>
     <td class="r num down">${a.rxRate ? fmtRate(a.rxRate) : '—'}</td>
     <td class="r num up">${a.txRate ? fmtRate(a.txRate) : '—'}</td>
     <td class="r num">${a.todayRx + a.todayTx ? fmtBytes(a.todayRx + a.todayTx) : '—'}</td>
@@ -572,6 +581,64 @@ $('#fwFilter').addEventListener('click', e => {
 });
 $('#fwSearch').addEventListener('input', e => { S.fwSearch = e.target.value; renderFirewall(); });
 $('#profileSel').addEventListener('change', e => act({ act: 'profile-switch', name: e.target.value }));
+
+/* ======================================================================
+   Amenazas / control maestro
+   ====================================================================== */
+const RISK = { 0: ['ok', 'Seguro'], 1: ['warn', 'Sospechoso'], 2: ['danger', 'Peligroso'] };
+function riskBadge(a) {
+  let s = '';
+  if (a.risk >= 1) s += `<span class="tag ${RISK[a.risk][0] === 'danger' ? 'danger' : 'warn'}">${a.risk >= 2 ? '⚠ Peligroso' : 'Sospechoso'}</span>`;
+  if (a.exposed) s += `<span class="tag warn" title="Acepta conexiones entrantes de la red">servicio</span>`;
+  if (a.tor) s += `<span class="tag danger" title="Indicios de Tor / servicio oculto">Tor</span>`;
+  if (a.signed === 0 && !a.system) s += `<span class="tag" title="Sin firma digital válida">sin firma</span>`;
+  return s;
+}
+const signLabel = s => s === 1 ? '<span class="ok">✓ Firmado</span>' : s === 0 ? '<span class="danger">✗ Sin firma válida</span>' : '<span class="faint">firma desconocida</span>';
+
+async function loadThreats() {
+  let r;
+  try { r = await api('threats'); } catch (e) { return; }
+  const s = S.last || {};
+  const danger = (r.items || []).filter(i => i.risk >= 2).length;
+  const susp = (r.items || []).filter(i => i.risk === 1).length;
+  const hero = $('#threatHero');
+  const hc = danger ? ['danger', 'i-skull', `${danger} programa${danger > 1 ? 's' : ''} peligroso${danger > 1 ? 's' : ''}`]
+    : susp ? ['warn', 'i-eye', `${susp} programa${susp > 1 ? 's' : ''} sospechoso${susp > 1 ? 's' : ''}`]
+      : ['ok', 'i-shield', 'Sin amenazas detectadas'];
+  const hh = `<div class="hero-main"><div class="hero-shield ${hc[0]}"><svg><use href="#${hc[1]}"/></svg></div>
+    <div class="grow"><div class="hero-title">${hc[2]}</div>
+    <div class="muted small">Análisis en tiempo real: firma digital, ubicación, suplantación, servicios ocultos y conexiones. ${r.etw ? '' : '<span class="warn">Ejecuta como administrador para el análisis completo.</span>'}</div>
+    <div class="row wrap" style="margin-top:9px;gap:6px"><span class="pill ${danger ? 'danger' : ''}">${danger} peligro</span><span class="pill ${susp ? 'warn' : ''}">${susp} sospechoso</span><span class="pill">${(r.listens || []).length} servicios expuestos</span></div></div></div>`;
+  if (hero._h !== hh) { hero.innerHTML = hh; hero._h = hh; }
+
+  const items = r.items || [];
+  const el = $('#threatList');
+  if (!items.length) { el.innerHTML = '<div class="card"><div class="empty">No se han detectado programas sospechosos. Tu equipo se ve limpio. 🛡️</div></div>'; }
+  else keyedRender(el, items, i => i.key, i => {
+    const rc = RISK[i.risk] || RISK[0];
+    return `<div class="card threat ${rc[0]}" data-k="${esc(i.key)}">
+      <div class="stat">
+        <div class="ic ${rc[0]}"><svg><use href="#${i.risk >= 2 ? 'i-skull' : i.risk === 1 ? 'i-eye' : 'i-shield'}"/></svg></div>
+        <div class="grow" style="min-width:0">
+          <div class="row" style="gap:8px">${appIcon(i.path, i.name)}<b class="ellipsis">${esc(i.name)}</b><span class="tag ${rc[0] === 'danger' ? 'danger' : rc[0] === 'warn' ? 'warn' : ''}">${rc[1]}</span>${i.blocked ? '<span class="tag danger">BLOQUEADO</span>' : ''}</div>
+          <div class="small faint ellipsis" title="${esc(i.path)}">${esc(i.path || 'Sin ejecutable')}</div>
+          <div class="small" style="margin-top:6px">${signLabel(i.signed)} · ${i.conns} conexiones${i.listen ? ' · ' + i.listen + ' a la escucha' : ''}</div>
+          <ul class="reasons">${(i.reasons || []).map(x => `<li>${esc(x)}</li>`).join('') || '<li class="faint">Vigilado por abrir servicios o conectarse a muchos destinos.</li>'}</ul>
+        </div>
+        <div class="row" style="flex-direction:column;gap:6px;align-items:stretch">
+          ${i.blocked
+            ? `<button class="btn sm" data-act="unblock-key" data-key="${esc(i.key)}">Permitir</button>`
+            : `<button class="btn sm danger" data-act="block-key" data-key="${esc(i.key)}">🚫 No permitir</button>`}
+          <button class="btn sm" data-act="reveal" data-path="${esc(i.path)}">Ver archivo</button>
+        </div>
+      </div>
+    </div>`;
+  });
+
+  const ex = r.listens || [];
+  $('#exposedBody').innerHTML = ex.length ? ex.map(l => `<tr class="${l.risk >= 2 ? 'row-danger' : l.risk === 1 ? 'row-warn' : ''}"><td><b>${esc(l.app)}</b></td><td>${l.proto}</td><td class="mono">${esc(l.addr)}</td><td class="r num">${l.port}</td><td class="r"><button class="btn sm danger" data-act="block-key" data-key="${esc(l.key)}">Bloquear</button></td></tr>`).join('') : '<tr><td colspan="5" class="empty">Ningún programa acepta conexiones entrantes desde la red. 👍</td></tr>';
+}
 
 /* ======================================================================
    Pestaña Uso
@@ -954,6 +1021,27 @@ async function act(d) {
         }
         break;
       case 'banner-close': $('#installBanner')?.classList.add('hidden'); break;
+      case 'block-key':
+        await api('block', { key: d.key, block: true });
+        toast('Programa bloqueado', 'Ya no tiene acceso a la red.', 'warn', '', 3000);
+        if (S.tab === 'amenazas') setTimeout(loadThreats, 300);
+        break;
+      case 'unblock-key':
+        await api('block', { key: d.key, block: false });
+        if (S.tab === 'amenazas') setTimeout(loadThreats, 300);
+        break;
+      case 'block-threats': {
+        const r = await api('threats').catch(() => null);
+        const danger = (r?.items || []).filter(i => i.risk >= 2 && !i.blocked && !i.system);
+        if (!danger.length) { toast('Nada que bloquear', 'No hay programas peligrosos sin bloquear.', 'info', '', 3000); break; }
+        if (confirm(`Se bloquearán ${danger.length} programa(s) marcados como peligrosos. ¿Continuar?`)) {
+          for (const i of danger) await api('block', { key: i.key, block: true });
+          toast('Amenazas bloqueadas', `${danger.length} programa(s) sin acceso a la red.`, 'warn', '', 4000);
+          setTimeout(loadThreats, 400);
+        }
+        break;
+      }
+      case 'reveal': if (d.path) await api('reveal', { name: d.path }); break;
       case 'alerts-read': await api('alerts/read', {}); loadAlerts(); break;
       case 'alerts-clear': if (confirm('¿Borrar todas las alertas?')) { await api('alerts/clear', {}); loadAlerts(); } break;
     }

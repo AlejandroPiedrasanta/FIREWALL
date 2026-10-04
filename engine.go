@@ -26,6 +26,14 @@ type liveApp struct {
 	Rx, Tx   uint64
 	Conns    int
 	LastSeen int64
+	// Análisis de amenazas:
+	Risk      int      // 0 ok · 1 sospechoso · 2 peligro
+	Reasons   []string // por qué
+	Signed    int      // -1 desconocido · 0 sin firma/ inválida · 1 firmado
+	Exposed   bool     // escucha en todas las interfaces (servicio accesible desde la red)
+	Listen    int      // nº de puertos a la escucha
+	Tor       bool     // posible red Tor / servicio oculto
+	countries map[string]bool
 }
 
 type hostLive struct {
@@ -64,11 +72,13 @@ type connView struct {
 }
 
 type listenView struct {
-	Key   string `json:"key"`
-	App   string `json:"app"`
-	Proto string `json:"proto"`
-	Addr  string `json:"addr"`
-	Port  uint16 `json:"port"`
+	Key     string `json:"key"`
+	App     string `json:"app"`
+	Proto   string `json:"proto"`
+	Addr    string `json:"addr"`
+	Port    uint16 `json:"port"`
+	Exposed bool   `json:"exposed"` // 0.0.0.0 / :: → accesible desde la red
+	Risk    int    `json:"risk"`
 }
 
 type App struct {
@@ -83,6 +93,7 @@ type App struct {
 
 	firstRun   bool
 	cfgDirty   bool
+	lastStep   time.Time
 	lastRx     uint64
 	lastTx     uint64
 	secs       []secSample
@@ -119,9 +130,12 @@ type App struct {
 	fwErr      string
 	tick       int64
 
-	allowOn  map[string]string // reglas de permiso aplicadas (modo estricto, en memoria)
-	notify   func(title, text, level string)
-	stopOnce sync.Once
+	allowOn    map[string]string // reglas de permiso aplicadas (modo estricto, en memoria)
+	sigQueue   chan string       // rutas pendientes de comprobar firma
+	sigPending map[string]bool
+	threatSeen map[string]int // clave → nivel ya avisado
+	notify     func(title, text, level string)
+	stopOnce   sync.Once
 }
 
 func NewApp(dir string) *App {
@@ -140,6 +154,9 @@ func NewApp(dir string) *App {
 		dnsQueue:   make(chan string, 512),
 		fwQueue:    make(chan func(), 256),
 		allowOn:    map[string]string{},
+		sigQueue:   make(chan string, 256),
+		sigPending: map[string]bool{},
+		threatSeen: map[string]int{},
 		notify:     func(string, string, string) {},
 	}
 	a.cfg = defaultConfig()
@@ -177,6 +194,9 @@ func (a *App) Start() {
 	go a.fwWorker()
 	for i := 0; i < 4; i++ {
 		go a.dnsWorker()
+	}
+	for i := 0; i < 2; i++ {
+		go a.sigWorker()
 	}
 	// Sincroniza las reglas del perfil activo y el modo con el firewall.
 	a.queueFW(func() {
@@ -305,7 +325,8 @@ func (a *App) step(now time.Time) {
 	a.tick++
 	tick := a.tick
 
-	// 1. Totales por interfaz.
+	// 1. Totales por interfaz. La tasa se normaliza por el tiempo transcurrido
+	// real para que un ciclo retrasado no produzca picos falsos (más preciso).
 	ifs := listInterfaces()
 	rx, tx := totalCounters(ifs)
 	var dRx, dTx uint64
@@ -313,7 +334,16 @@ func (a *App) step(now time.Time) {
 		dRx, dTx = rx-a.lastRx, tx-a.lastTx
 	}
 	a.lastRx, a.lastTx = rx, tx
-	a.hist.AddTotals(now, dRx, dTx)
+	a.hist.AddTotals(now, dRx, dTx) // el historial guarda bytes reales transferidos
+	elapsed := 1.0
+	if !a.lastStep.IsZero() {
+		if e := now.Sub(a.lastStep).Seconds(); e > 0.05 && e < 10 {
+			elapsed = e
+		}
+	}
+	a.lastStep = now
+	rateRx := uint64(float64(dRx)/elapsed + 0.5)
+	rateTx := uint64(float64(dTx)/elapsed + 0.5)
 
 	// 2. Tráfico por proceso (ETW). Se resuelven los PID fuera del candado.
 	type appDelta struct {
@@ -341,10 +371,10 @@ func (a *App) step(now time.Time) {
 		}
 	}
 
-	// 3. Conexiones (cada 2 s).
+	// 3. Conexiones (cada segundo, para un estado en tiempo real preciso).
 	var socks []sockRow
 	var sockProcs map[uint32]*procInfo
-	if tick%2 == 1 {
+	if true {
 		socks = listSockets()
 		sockProcs = map[uint32]*procInfo{}
 		for _, s := range socks {
@@ -361,7 +391,7 @@ func (a *App) step(now time.Time) {
 	defer a.mu.Unlock()
 
 	a.ifaces = ifs
-	a.secs = append(a.secs, secSample{now.Unix(), int64(dRx), int64(dTx)})
+	a.secs = append(a.secs, secSample{now.Unix(), int64(rateRx), int64(rateTx)})
 	if len(a.secs) > 900 {
 		a.secs = a.secs[len(a.secs)-900:]
 	}
@@ -479,6 +509,10 @@ func (a *App) pruneHosts(now time.Time) {
 func (a *App) processSockets(socks []sockRow, procs map[uint32]*procInfo, now time.Time) {
 	for _, la := range a.apps {
 		la.Conns = 0
+		la.Exposed = false
+		la.Listen = 0
+		la.Tor = false
+		la.countries = map[string]bool{}
 	}
 	for _, h := range a.hosts {
 		h.Conns = 0
@@ -494,7 +528,13 @@ func (a *App) processSockets(socks []sockRow, procs map[uint32]*procInfo, now ti
 		}
 		if s.Proto == "UDP" || s.State == tcpListen {
 			if !s.Local.Addr().IsLoopback() {
-				listens = append(listens, listenView{pi.Key, pi.Name, s.Proto, s.Local.Addr().String(), s.Local.Port()})
+				exposed := s.Local.Addr().IsUnspecified() // 0.0.0.0 o :: → accesible desde la red
+				la := a.liveApp(pi, now)
+				la.Listen++
+				if exposed {
+					la.Exposed = true
+				}
+				listens = append(listens, listenView{Key: pi.Key, App: pi.Name, Proto: s.Proto, Addr: s.Local.Addr().String(), Port: s.Local.Port(), Exposed: exposed})
 			}
 			continue
 		}
@@ -504,9 +544,18 @@ func (a *App) processSockets(socks []sockRow, procs map[uint32]*procInfo, now ti
 		}
 		la := a.liveApp(pi, now)
 		la.Conns++
+		if torRemote(s.Remote) {
+			la.Tor = true
+		}
 		h := a.host(ra, now)
 		h.Conns++
 		h.Apps[pi.Key] = true
+		if la.countries == nil {
+			la.countries = map[string]bool{}
+		}
+		if h.CC != "" {
+			la.countries[h.CC] = true
+		}
 		conns = append(conns, connView{
 			Key: pi.Key, App: pi.Name, Proto: s.Proto,
 			Local: s.Local.String(), Remote: s.Remote.String(), IP: ra.String(), Port: s.Remote.Port(),
@@ -534,6 +583,20 @@ func (a *App) processSockets(socks []sockRow, procs map[uint32]*procInfo, now ti
 	for p := range rdpNow {
 		a.rdpActive = append(a.rdpActive, p)
 	}
+	// Recalcula el riesgo de cada app activa y avisa de amenazas nuevas.
+	for _, la := range a.apps {
+		if la.Conns > 0 || la.Listen > 0 || la.RxRate+la.TxRate > 0 {
+			a.computeRisk(la)
+			a.raiseThreat(la)
+		}
+	}
+	riskByKey := map[string]int{}
+	for _, la := range a.apps {
+		riskByKey[la.Key] = la.Risk
+	}
+	for i := range listens {
+		listens[i].Risk = riskByKey[listens[i].Key]
+	}
 	sort.Slice(conns, func(i, j int) bool {
 		if conns[i].App != conns[j].App {
 			return conns[i].App < conns[j].App
@@ -543,6 +606,28 @@ func (a *App) processSockets(socks []sockRow, procs map[uint32]*procInfo, now ti
 	sort.Slice(listens, func(i, j int) bool { return listens[i].Port < listens[j].Port })
 	a.conns = conns
 	a.listens = listens
+}
+
+// raiseThreat avisa una vez cuando una app alcanza un nivel de riesgo nuevo.
+func (a *App) raiseThreat(la *liveApp) {
+	if la.Risk == 0 || a.firstRun {
+		return
+	}
+	if a.threatSeen[la.Key] >= la.Risk {
+		return
+	}
+	a.threatSeen[la.Key] = la.Risk
+	reason := ""
+	if len(la.Reasons) > 0 {
+		reason = la.Reasons[0]
+	}
+	if la.Risk == riskDanger {
+		a.alert("threat", "danger", "⚠ Programa peligroso detectado",
+			la.Name+": "+reason+".\nRevísalo en Amenazas; puedes bloquearlo con un clic.", la.Key)
+	} else {
+		a.alert("threat", "warn", "Programa sospechoso",
+			la.Name+": "+reason+".", la.Key)
+	}
 }
 
 var selfPathCache string

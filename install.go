@@ -181,6 +181,14 @@ func scheduleSelfDelete() {
 	_ = cmdHidden("cmd.exe", line).Start()
 }
 
+// revealInExplorer abre el Explorador de Windows con el archivo seleccionado.
+func revealInExplorer(path string) {
+	if path == "" || strings.ContainsAny(path, "\"\r\n") {
+		return
+	}
+	_ = cmdHidden("explorer.exe", `explorer.exe /select,"`+path+`"`).Start()
+}
+
 func elevatedRelaunch(exe, args string) bool {
 	err := windows.ShellExecute(0, utf16("runas"), utf16(exe), utf16(args), nil, windows.SW_SHOWNORMAL)
 	return err == nil

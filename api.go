@@ -135,6 +135,8 @@ func (s *server) api(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, a.LanView())
 	case "security":
 		writeJSON(w, a.SecurityView())
+	case "threats":
+		writeJSON(w, a.ThreatsView())
 	case "system":
 		writeJSON(w, a.SystemView())
 	case "alerts":
@@ -204,6 +206,9 @@ func (s *server) api(w http.ResponseWriter, r *http.Request) {
 			uninstallApp(a)
 			s.window.Quit()
 		}()
+		writeJSON(w, "ok")
+	case "reveal":
+		revealInExplorer(body.Name)
 		writeJSON(w, "ok")
 	case "firewall/enable":
 		a.queueFW(func() { a.fwResult(fwEnable()) })
@@ -277,20 +282,26 @@ func (s *server) api(w http.ResponseWriter, r *http.Request) {
 // ---------------------------------------------------------------------------
 
 type appView struct {
-	Key     string `json:"key"`
-	Name    string `json:"name"`
-	Path    string `json:"path"`
-	RxRate  uint64 `json:"rxRate"`
-	TxRate  uint64 `json:"txRate"`
-	TodayRx uint64 `json:"todayRx"`
-	TodayTx uint64 `json:"todayTx"`
-	Conns   int    `json:"conns"`
-	Blocked bool   `json:"blocked"`
-	Pending bool   `json:"pending"`
-	CanFW   bool   `json:"canFw"`
-	System  bool   `json:"system"`
-	Active  bool   `json:"active"`
-	First   int64  `json:"first"`
+	Key     string   `json:"key"`
+	Name    string   `json:"name"`
+	Path    string   `json:"path"`
+	RxRate  uint64   `json:"rxRate"`
+	TxRate  uint64   `json:"txRate"`
+	TodayRx uint64   `json:"todayRx"`
+	TodayTx uint64   `json:"todayTx"`
+	Conns   int      `json:"conns"`
+	Blocked bool     `json:"blocked"`
+	Pending bool     `json:"pending"`
+	CanFW   bool     `json:"canFw"`
+	System  bool     `json:"system"`
+	Active  bool     `json:"active"`
+	First   int64    `json:"first"`
+	Risk    int      `json:"risk"`
+	Reasons []string `json:"reasons,omitempty"`
+	Signed  int      `json:"signed"`
+	Exposed bool     `json:"exposed"`
+	Tor     bool     `json:"tor"`
+	Listen  int      `json:"listen"`
 }
 
 type stateView struct {
@@ -318,6 +329,8 @@ type stateView struct {
 	Strict    bool       `json:"strict"`
 	Guard     bool       `json:"guard"`
 	Blocked   int        `json:"blocked"`
+	Threats   int        `json:"threats"`
+	Danger    int        `json:"danger"`
 }
 
 func (a *App) appViews(today map[string]u2) []appView {
@@ -343,6 +356,8 @@ func (a *App) appViews(today map[string]u2) []appView {
 		if la := a.apps[k]; la != nil {
 			v.Name, v.Path, v.RxRate, v.TxRate, v.Conns = la.Name, la.Path, la.RxRate, la.TxRate, la.Conns
 			v.Active = la.Conns > 0 || la.RxRate+la.TxRate > 0
+			v.Risk, v.Reasons, v.Signed = la.Risk, la.Reasons, la.Signed
+			v.Exposed, v.Tor, v.Listen = la.Exposed, la.Tor, la.Listen
 		}
 		if r := a.cfg.Apps[k]; r != nil {
 			if v.Path == "" {
@@ -434,7 +449,66 @@ func (a *App) State() stateView {
 			v.Hosts++
 		}
 	}
+	for _, la := range a.apps {
+		if la.Risk >= riskWarn {
+			v.Threats++
+		}
+		if la.Risk >= riskDanger {
+			v.Danger++
+		}
+	}
 	return v
+}
+
+type threatItem struct {
+	Key     string   `json:"key"`
+	Name    string   `json:"name"`
+	Path    string   `json:"path"`
+	Risk    int      `json:"risk"`
+	Reasons []string `json:"reasons"`
+	Signed  int      `json:"signed"`
+	Exposed bool     `json:"exposed"`
+	Tor     bool     `json:"tor"`
+	Listen  int      `json:"listen"`
+	Conns   int      `json:"conns"`
+	Blocked bool     `json:"blocked"`
+	System  bool     `json:"system"`
+}
+
+type threatsResp struct {
+	Items   []threatItem `json:"items"`
+	Listens []listenView `json:"listens"`
+	Etw     bool         `json:"etw"`
+}
+
+// ThreatsView: programas sospechosos/peligrosos y servicios expuestos a la red.
+func (a *App) ThreatsView() threatsResp {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	var items []threatItem
+	for k, la := range a.apps {
+		if la.Risk < riskWarn && !la.Exposed && !la.Tor {
+			continue
+		}
+		items = append(items, threatItem{
+			Key: k, Name: la.Name, Path: la.Path, Risk: la.Risk, Reasons: la.Reasons,
+			Signed: la.Signed, Exposed: la.Exposed, Tor: la.Tor, Listen: la.Listen, Conns: la.Conns,
+			Blocked: a.cfg.isBlocked(k), System: la.Path == "" || isSystemPath(la.Path),
+		})
+	}
+	sort.Slice(items, func(i, j int) bool {
+		if items[i].Risk != items[j].Risk {
+			return items[i].Risk > items[j].Risk
+		}
+		return items[i].Name < items[j].Name
+	})
+	exposed := []listenView{}
+	for _, l := range a.listens {
+		if l.Exposed {
+			exposed = append(exposed, l)
+		}
+	}
+	return threatsResp{Items: items, Listens: exposed, Etw: a.etw != nil && a.etw.Active}
 }
 
 type historyView struct {
